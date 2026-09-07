@@ -2010,8 +2010,8 @@ PORT = int(os.getenv("PORT", "8000"))
 # segundos por si el cliente sigue escribiendo, para responder a toda la tanda junta (ver
 # sección 4-6 del SYSTEM_PROMPT). MSG_DEBOUNCE_MAX_WAIT es un tope de seguridad: si el cliente
 # no deja de escribir, igual se responde apenas se cumpla ese máximo desde el primer mensaje.
-MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "15"))
-MSG_DEBOUNCE_MAX_WAIT = float(os.getenv("MSG_DEBOUNCE_MAX_WAIT", "45"))
+MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "10"))
+MSG_DEBOUNCE_MAX_WAIT = float(os.getenv("MSG_DEBOUNCE_MAX_WAIT", "30"))
 
 HTTP_TIMEOUT = 60  # segundos, para TODAS las llamadas HTTP
 
