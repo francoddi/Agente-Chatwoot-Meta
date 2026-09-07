@@ -1467,7 +1467,7 @@ Generar:
 
 "Hola Camila, quiero avanzar con mi portabilidad a Claro.
 
-Tipo de cliente: Consumidor final
+Tipo de portabilidad: Consumidor final
 Nombre: [NOMBRE]
 Compañía actual: [COMPANIA]
 Número a portar: [NUMERO]
@@ -1489,7 +1489,7 @@ NO inventar datos.
 
 "Hola Camila, quiero avanzar con mi portabilidad a Claro.
 
-Tipo de cliente: Empresa
+Tipo de portabilidad: Empresa
 Nombre: [NOMBRE]
 Compañía actual: [COMPANIA]
 Número a portar: [NUMERO]
@@ -1508,7 +1508,7 @@ NO poner precio.
 
 "Hola Camila, quiero avanzar con una línea nueva de Claro.
 
-Tipo de cliente: [Consumidor final o Empresa, el que corresponda]
+Tipo de portabilidad: [Consumidor final o Empresa, el que corresponda]
 Nombre: [NOMBRE]
 Plan elegido: [PLAN]
 Localidad: [LOCALIDAD]
@@ -1820,7 +1820,7 @@ TERCER MENSAJE:
 
 "Hola Camila, quiero avanzar con mi portabilidad a Claro.
 
-Tipo de cliente: Consumidor final
+Tipo de portabilidad: Consumidor final
 Nombre: Juan Perez
 Compañía actual: Movistar
 Número a portar: 223XXXXXXX
