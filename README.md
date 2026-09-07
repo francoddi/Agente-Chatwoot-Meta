@@ -1,4 +1,4 @@
-# EducaBot — Agente de IA para WhatsApp (Chatwoot + Meta Cloud + OpenRouter)
+# Valentina — Asesora comercial de Claro por WhatsApp (Chatwoot + Meta Cloud + OpenRouter)
 
 Agente en Python/FastAPI que conecta **Chatwoot** con un modelo LLM multimodal vía
 **OpenRouter**. El canal de WhatsApp de Chatwoot es la API oficial de Meta (WhatsApp Cloud),
@@ -6,13 +6,20 @@ pero es transparente para el bot: este **solo** habla con la API de Chatwoot (re
 y responde creando mensajes salientes). Nunca toca la Graph API de Meta ni maneja sus
 credenciales — esas viven en el inbox de WhatsApp Cloud dentro de Chatwoot.
 
+Valentina asesora sobre portabilidad a Claro (o línea nueva), muestra precios Particular/Empresa
+según corresponda, cierra la venta comercialmente y arma la ficha de datos para que el cliente
+la reenvíe a **Camila**, quien pide el DNI y hace el alta/traspaso.
+
 ## Qué hace
 
-- Responde mensajes de **texto**, **imágenes** (ej. comprobantes de pago) y **notas de voz**.
+- Responde mensajes de **texto**, **imágenes** (ej. DNI, facturas, capturas) y **notas de voz**.
 - Mantiene **memoria de conversación** trayendo el historial desde la API de Chatwoot.
 - Se puede **pausar** por conversación con la etiqueta `bot_off` (atención humana).
 - Convierte las notas de voz de WhatsApp (Opus/OGG) a **MP3 con ffmpeg** antes de mandarlas al
   modelo — sin esto, OpenRouter responde 200 OK pero descarta el audio.
+- Sigue el guion comercial completo (tablas de precios Particular/Empresa, checklist de datos
+  antes del handoff, mensaje sin precio para reenviar a Camila) definido en el `SYSTEM_PROMPT`
+  de `main.py`.
 
 ## 1. Configura tus credenciales
 
