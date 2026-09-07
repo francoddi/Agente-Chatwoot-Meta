@@ -19,6 +19,9 @@ import logging
 import os
 import re
 import time
+from datetime import datetime
+from datetime import time as dtime
+from zoneinfo import ZoneInfo
 
 import httpx
 from dotenv import load_dotenv
@@ -33,9 +36,35 @@ BOT_NAME = "Valentina"
 COMPANY_NAME = "Claro"
 LANGUAGE = "español argentino (voseo), directo y sin sonar a chatbot"
 
-# Número de WhatsApp de Camila (la asesora que recibe el handoff y hace el alta/traspaso).
-# Configurable por entorno para no tener que tocar el código si cambia.
+# Link de WhatsApp de Camila (la asesora que recibe el handoff y hace el alta/traspaso). Se
+# manda como link de wa.me (no solo el número en texto) para que WhatsApp lo muestre tocable y
+# lleve directo al chat con ella. Configurable por entorno para no tocar el código si cambia.
 NUMERO_CAMILA = os.getenv("NUMERO_CAMILA", "[NUMERO_CAMILA_SIN_CONFIGURAR]")
+
+# Horario de atención de Camila (para avisarle al cliente si está disponible o no al derivarlo).
+CAMILA_TIMEZONE = ZoneInfo("America/Argentina/Buenos_Aires")
+CAMILA_HORARIO_DESDE = dtime(8, 0)
+CAMILA_HORARIO_HASTA = dtime(19, 0)
+_DIAS_SEMANA_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def build_camila_availability_note() -> str:
+    """Nota interna (no se le muestra al cliente) con el día/hora actual en Argentina y si
+    Camila está dentro de su horario de atención (lunes a viernes de 8 a 19hs). Se calcula en
+    cada llamada al modelo para que la respuesta use la hora real, no una que el modelo invente.
+    """
+    now = datetime.now(CAMILA_TIMEZONE)
+    dia = _DIAS_SEMANA_ES[now.weekday()]
+    es_dia_habil = now.weekday() < 5  # 0=lunes ... 4=viernes
+    en_horario = es_dia_habil and CAMILA_HORARIO_DESDE <= now.time() < CAMILA_HORARIO_HASTA
+    disponibilidad = "SÍ, está disponible ahora." if en_horario else "NO está disponible en este momento (fuera de horario)."
+
+    return (
+        f"[Nota interna sobre disponibilidad de Camila — NO se la muestres al cliente tal cual, "
+        f"es solo para que sepas qué decirle al derivarlo]\n"
+        f"Ahora mismo, hora Argentina, es {dia} {now.strftime('%H:%M')}hs.\n"
+        f"Camila atiende de lunes a viernes de 8 a 19hs. ¿Está disponible ahora? {disponibilidad}"
+    )
 
 SYSTEM_PROMPT = f"""PROMPT MAESTRO DEFINITIVO
 ASESORA COMERCIAL CLARO POR WHATSAPP
@@ -1451,13 +1480,27 @@ Mensaje 1:
 
 Mensaje 2:
 
-"ahora te voy a pasar un mensaje con tus datos. te pido que se lo reenvies al {NUMERO_CAMILA}
+"ahora te voy a pasar un mensaje con tus datos. tocá este link para escribirle directo a Camila: {NUMERO_CAMILA}
 
-es de Camila, mi jefa, ella se encarga de hacer el alta y terminar el cambio"
+es mi jefa, ella se encarga de hacer el alta y terminar el cambio. apenas se abra el chat, reenviale el mensaje que te paso ahora"
 
 No es obligatorio usar exactamente dos mensajes.
 
 Elegir la forma más natural.
+
+DISPONIBILIDAD DE CAMILA:
+
+Junto a la conversación te llega una nota interna (no se la muestres al cliente tal cual) que indica el día y la hora actuales en Argentina, y si Camila está dentro o fuera de su horario de atención (lunes a viernes de 8 a 19hs). Usala SOLO en este momento, al derivar al cliente a Camila:
+
+Si la nota dice que Camila está disponible ahora, agregá algo tipo:
+
+"te contesta en menos de 5 minutos"
+
+Si la nota dice que está fuera de horario, aclarale al cliente algo tipo:
+
+"ella atiende de lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible"
+
+No inventes ni calcules vos el día o la hora: usá siempre lo que diga esa nota interna.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 50. MENSAJE PARA REENVIAR — CONSUMIDOR FINAL
@@ -1813,11 +1856,17 @@ CHECKLIST COMPLETO.
 
 "listo, ya tenemos todo"
 
-SEGUNDO MENSAJE:
+SEGUNDO MENSAJE (dentro de horario, según la nota interna de disponibilidad):
 
-"te voy a pasar un mensaje con tus datos para que se lo reenvies al {NUMERO_CAMILA}
+"tocá este link para escribirle directo a Camila: {NUMERO_CAMILA}
 
-es de Camila, mi jefa, ella se encarga de hacer el alta"
+es mi jefa, ella se encarga de hacer el alta, y te contesta en menos de 5 minutos"
+
+SEGUNDO MENSAJE (fuera de horario, según la nota interna de disponibilidad):
+
+"tocá este link para escribirle directo a Camila: {NUMERO_CAMILA}
+
+es mi jefa, ella se encarga de hacer el alta. atiende de lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible"
 
 TERCER MENSAJE:
 
@@ -2361,7 +2410,12 @@ async def process_conversation(conversation_id: int) -> None:
         batch_turns.append({"role": "user", "content": content})
         kinds.append(kind)
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + batch_turns
+    messages = (
+        [{"role": "system", "content": SYSTEM_PROMPT}]
+        + [{"role": "system", "content": build_camila_availability_note()}]
+        + history
+        + batch_turns
+    )
     reply = await call_openrouter(messages)
 
     bubbles = split_into_bubbles(reply)
