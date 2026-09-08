@@ -1705,16 +1705,19 @@ o:
 "eso lo revisan al momento de cargarlo"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-58. NO HAY FOLLOW UPS
+58. SEGUIMIENTO AUTOMÁTICO — SOLO EL QUE TE PIDE EL SISTEMA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-No realizar:
+El sistema puede pedirte automáticamente UN mensaje de seguimiento si el cliente no responde por un rato (ver la NOTA TÉCNICA sobre seguimiento automático, al final de este documento). Ese es el único tipo de seguimiento que existe.
 
-- mensajes al día siguiente,
-- secuencias,
-- recuperación automática,
-- recordatorios,
-- follow-ups.
+Vos NO decidís por tu cuenta cuándo mandar un seguimiento — eso lo dispara el sistema. Vos solo redactás el contenido cuando te lo pide, usando el contexto real de la charla, y podés marcar que el tema quedó cerrado con [FIN_SEGUIMIENTO] cuando corresponda.
+
+No hagas (ni inventes) nada más allá de eso:
+
+- mensajes al día siguiente por tu cuenta,
+- secuencias de varios días,
+- recuperación de leads viejos,
+- recordatorios propios sin que el sistema te lo pida.
 
 Trabajás sobre la conversación activa.
 
@@ -2088,6 +2091,24 @@ para decirte cuanto te queda el de 30 necesito saber si lo haces como consumidor
 Si tu respuesta va en un solo mensaje (lo más común), NO uses "---".
 
 No abuses de este separador: usalo solo cuando de verdad sea más natural partir la idea en dos o tres mensajes, no en cada respuesta.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTA TÉCNICA — SEGUIMIENTO AUTOMÁTICO SI EL CLIENTE NO RESPONDE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Si el cliente no responde por un rato, el sistema te va a pedir automáticamente (con un mensaje interno) que le mandes UN seguimiento corto, usando contexto real de en qué había quedado la charla. Por ejemplo:
+
+- si le mostraste planes y no contestó: preguntale qué le parecieron.
+- si le pediste un dato (nombre, dirección, etc.) y no contestó: pedíselo de nuevo, con otras palabras.
+- si ya lo derivaste a Camila: preguntale si pudo hablar con ella.
+
+No repitas literalmente tu mensaje anterior. No seas insistente ni pesada.
+
+Por otro lado, en CUALQUIER respuesta tuya (no solo en los seguimientos), si el tema queda cerrado y no tiene sentido que el sistema programe un seguimiento después de esta respuesta —por ejemplo, el cliente confirmó que ya habló con Camila, se despidió, dijo que no le interesa, o cualquier situación donde insistir después sonaría pesado— agregá al final de tu mensaje, en su propia línea, esta marca exacta:
+
+[FIN_SEGUIMIENTO]
+
+Esa marca es interna: el sistema la borra antes de que el cliente la vea, nunca la va a leer. Usala solo cuando el tema realmente esté cerrado; si no la ponés, el sistema puede programarte un seguimiento más adelante si el cliente no responde.
 """
 
 # --------------------------------------------------------------------------------------
@@ -2107,6 +2128,13 @@ PORT = int(os.getenv("PORT", "8000"))
 # sección 4-6 del SYSTEM_PROMPT). Cada mensaje nuevo reinicia la espera desde cero, sin tope:
 # el bot espera lo que haga falta hasta que el cliente termine de escribir.
 MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "7"))
+
+# Seguimiento automático: si el cliente no responde después de este tiempo (en segundos) desde
+# la última respuesta del bot, se le manda UN mensaje de seguimiento con contexto (ver NOTA
+# TÉCNICA en el SYSTEM_PROMPT). El bot puede marcar una respuesta como "tema cerrado" para que
+# no se programe seguimiento después de ella.
+FOLLOWUP_DELAY_SECONDS = float(os.getenv("FOLLOWUP_DELAY_SECONDS", "1800"))  # 30 minutos
+FOLLOWUP_CLOSE_MARKER = "[FIN_SEGUIMIENTO]"
 
 HTTP_TIMEOUT = 60  # segundos, para TODAS las llamadas HTTP
 
@@ -2328,27 +2356,40 @@ def split_into_bubbles(text: str) -> list:
 # --------------------------------------------------------------------------------------
 # OpenRouter
 # --------------------------------------------------------------------------------------
-async def call_openrouter(messages: list) -> str:
+async def call_openrouter(messages: list, intentos: int = 3) -> str:
+    """Llama a OpenRouter. A veces el modelo devuelve content=null con finish_reason="stop"
+    (glitch observado con Gemini vía OpenRouter, sin relación con errores HTTP) — se reintenta
+    unas pocas veces antes de resignarse, para no dejar al cliente sin respuesta por eso."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
     body = {"model": OPENROUTER_MODEL, "messages": messages}
-    try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.post(url, headers=headers, json=body)
-            if resp.status_code >= 400:
-                logger.error(f"OpenRouter devolvió error {resp.status_code}: {resp.text[:2000]}")
-                resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-    except Exception as e:
-        logger.error(f"Error llamando a OpenRouter: {e}")
-        return (
-            "Disculpa, tuve un problema técnico para procesar tu mensaje. ¿Podrías intentar de "
-            "nuevo en un momento? Si prefieres, puedo derivarte con un asesor humano."
-        )
+    ultimo_error = None
+    for intento in range(1, intentos + 1):
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.post(url, headers=headers, json=body)
+                if resp.status_code >= 400:
+                    logger.error(f"OpenRouter devolvió error {resp.status_code}: {resp.text[:2000]}")
+                    resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                if content:
+                    return content
+                finish_reason = data["choices"][0].get("finish_reason")
+                logger.warning(f"OpenRouter devolvió contenido vacío en el intento {intento}/{intentos} "
+                                f"(finish_reason={finish_reason}); reintentando.")
+        except Exception as e:
+            ultimo_error = e
+            logger.error(f"Error llamando a OpenRouter (intento {intento}/{intentos}): {e}")
+
+    logger.error(f"OpenRouter no devolvió contenido útil tras {intentos} intentos. Último error: {ultimo_error}")
+    return (
+        "Disculpa, tuve un problema técnico para procesar tu mensaje. ¿Podrías intentar de "
+        "nuevo en un momento? Si prefieres, puedo derivarte con un asesor humano."
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -2383,6 +2424,116 @@ async def _process_after_delay(conversation_id: int, wait_seconds: float) -> Non
     finally:
         if _pending_tasks.get(conversation_id) is asyncio.current_task():
             _pending_tasks.pop(conversation_id, None)
+
+
+# --------------------------------------------------------------------------------------
+# Seguimiento automático: si el cliente no responde en FOLLOWUP_DELAY_SECONDS desde la última
+# respuesta del bot, se le manda UN mensaje de seguimiento con contexto real de la charla (ver
+# NOTA TÉCNICA en el SYSTEM_PROMPT). Mismo esquema y misma limitación que el debounce: el
+# seguimiento programado vive en memoria y se pierde si el proceso se reinicia mientras espera.
+# --------------------------------------------------------------------------------------
+_pending_followups: dict = {}
+
+
+def schedule_followup_check(conversation_id: int) -> None:
+    existing = _pending_followups.get(conversation_id)
+    if existing and not existing.done():
+        existing.cancel()
+
+    task = asyncio.create_task(_followup_after_delay(conversation_id))
+    _pending_followups[conversation_id] = task
+
+
+def cancel_followup_check(conversation_id: int) -> None:
+    existing = _pending_followups.pop(conversation_id, None)
+    if existing and not existing.done():
+        existing.cancel()
+
+
+async def _followup_after_delay(conversation_id: int) -> None:
+    try:
+        await asyncio.sleep(FOLLOWUP_DELAY_SECONDS)
+        await send_followup_if_needed(conversation_id)
+    except asyncio.CancelledError:
+        # La conversación siguió (nueva respuesta real, o el tema se cerró): se reprogramó o
+        # se canceló desde process_conversation.
+        pass
+    except Exception:
+        logger.exception(f"Error en el seguimiento automático de la conversación {conversation_id}")
+    finally:
+        if _pending_followups.get(conversation_id) is asyncio.current_task():
+            _pending_followups.pop(conversation_id, None)
+
+
+async def send_followup_if_needed(conversation_id: int) -> None:
+    """Si el cliente sigue sin responder, arma UN mensaje de seguimiento con contexto y lo
+    manda. Esta función NUNCA programa otro seguimiento después de sí misma (regla 1): así,
+    como mucho, el cliente recibe un solo empujón por cada silencio."""
+    labels = await get_conversation_labels(conversation_id)
+    if PAUSE_LABEL in (labels or []):
+        logger.info(f"Conversación {conversation_id} pausada; se cancela el seguimiento automático.")
+        return
+
+    url = f"{_chatwoot_base(conversation_id)}/messages"
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers=_chatwoot_headers())
+            resp.raise_for_status()
+            all_messages = resp.json().get("payload", []) or []
+    except Exception as e:
+        logger.error(f"No se pudo chequear si corresponde seguimiento en la conversación {conversation_id}: {e}")
+        return
+
+    all_messages = sorted(all_messages, key=lambda m: m.get("id") or 0)
+    visibles = [m for m in all_messages if not m.get("private")]
+    if not visibles:
+        return
+
+    ultimo = visibles[-1]
+    if ultimo.get("message_type") != 1:
+        # El cliente ya escribió algo después de nuestra última respuesta: el flujo normal
+        # (webhook + debounce) ya se encarga, no hace falta seguimiento.
+        return
+
+    history = _map_history(visibles)
+    minutos = int(FOLLOWUP_DELAY_SECONDS // 60)
+    nudge = (
+        f"[Instrucción interna de seguimiento automático — esto NO es una respuesta a un "
+        f"mensaje del cliente, es un chequeo que dispara el sistema porque no respondió en los "
+        f"últimos {minutos} minutos.] Escribí un mensaje de seguimiento corto y natural, con "
+        f"contexto real de en qué había quedado la charla (repasá el historial: si le mostraste "
+        f"planes, preguntale qué le parecieron; si le pediste un dato, pedíselo de nuevo con "
+        f"otras palabras; si ya lo derivaste a Camila, preguntale si pudo hablar con ella). "
+        f"ES OBLIGATORIO escribir algo — no dejes la respuesta vacía ni mandes solo espacios. "
+        f"No repitas literalmente tu mensaje anterior. No le preguntes genéricamente 'seguís "
+        f"ahí?', hacé referencia concreta a lo último que se habló. NO uses la marca "
+        f"{FOLLOWUP_CLOSE_MARKER} en esta respuesta puntual."
+    )
+    # El pedido de seguimiento va como último turno "user" (no "system"), igual que en el flujo
+    # normal: si la lista de mensajes termina en un turno "assistant" (la última respuesta del
+    # bot, sin nada después), el modelo tiende a CONTINUAR esa respuesta en vez de generar una
+    # nueva -> fragmentos cortados en vez de un mensaje de seguimiento real.
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": build_camila_availability_note()},
+    ] + history + [{"role": "user", "content": nudge}]
+
+    reply = await call_openrouter(messages)
+    reply = reply.replace(FOLLOWUP_CLOSE_MARKER, "").strip()
+    if not reply:
+        logger.info(f"Conversación {conversation_id}: el modelo decidió no mandar seguimiento.")
+        return
+
+    bubbles = split_into_bubbles(reply)
+    logger.info(f"Conversación {conversation_id}: enviando seguimiento automático en "
+                f"{len(bubbles)} burbuja(s): {reply[:200]!r}")
+
+    for bubble in bubbles:
+        try:
+            await send_message(conversation_id, bubble)
+        except Exception as e:
+            logger.error(f"Error enviando seguimiento a la conversación {conversation_id}: {e}")
+            break
 
 
 async def process_conversation(conversation_id: int) -> None:
@@ -2447,9 +2598,15 @@ async def process_conversation(conversation_id: int) -> None:
     )
     reply = await call_openrouter(messages)
 
+    # El modelo puede marcar que el tema quedó cerrado y no corresponde programar un
+    # seguimiento automático después de esta respuesta (ver NOTA TÉCNICA en el SYSTEM_PROMPT).
+    close_followups = FOLLOWUP_CLOSE_MARKER in reply
+    reply = reply.replace(FOLLOWUP_CLOSE_MARKER, "").strip()
+
     bubbles = split_into_bubbles(reply)
     logger.info(f"Conversación {conversation_id}: agrupé {len(batch)} mensaje(s) entrante(s) "
-                f"({', '.join(kinds)}) y respondo en {len(bubbles)} burbuja(s): {reply[:200]!r}")
+                f"({', '.join(kinds)}) y respondo en {len(bubbles)} burbuja(s) "
+                f"(cierra_seguimiento={close_followups}): {reply[:200]!r}")
 
     for bubble in bubbles:
         try:
@@ -2457,6 +2614,14 @@ async def process_conversation(conversation_id: int) -> None:
         except Exception as e:
             logger.error(f"Error enviando una burbuja a la conversación {conversation_id}: {e}")
             break
+
+    # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
+    # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
+    # NO vuelve a llamar a esta función, así que nunca se encadena solo.
+    if close_followups:
+        cancel_followup_check(conversation_id)
+    else:
+        schedule_followup_check(conversation_id)
 
 
 # --------------------------------------------------------------------------------------
