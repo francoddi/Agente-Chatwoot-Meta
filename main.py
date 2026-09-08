@@ -1074,9 +1074,7 @@ usar:
 
 80% OFF durante 12 meses.
 
-Desde 4 GB:
-
-+10 GB durante 3 meses.
++10 GB durante 3 meses, en TODOS los planes (incluido el de 2 GB).
 
 PRECIOS SIN IMPUESTOS.
 
@@ -1146,9 +1144,7 @@ PROMOCIÓN:
 
 80% OFF.
 
-Desde 4 GB:
-
-+10 GB de regalo durante 6 meses.
++10 GB de regalo durante 6 meses, en TODOS los planes (incluido el de 2 GB).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 33. OTRAS COMPAÑÍAS
