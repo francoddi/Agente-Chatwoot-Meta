@@ -18,7 +18,6 @@ import base64
 import logging
 import os
 import re
-import time
 from datetime import datetime
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
@@ -2105,10 +2104,9 @@ PORT = int(os.getenv("PORT", "8000"))
 
 # Agrupamiento de mensajes ("debounce"): al recibir un mensaje se espera esta cantidad de
 # segundos por si el cliente sigue escribiendo, para responder a toda la tanda junta (ver
-# sección 4-6 del SYSTEM_PROMPT). MSG_DEBOUNCE_MAX_WAIT es un tope de seguridad: si el cliente
-# no deja de escribir, igual se responde apenas se cumpla ese máximo desde el primer mensaje.
-MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "10"))
-MSG_DEBOUNCE_MAX_WAIT = float(os.getenv("MSG_DEBOUNCE_MAX_WAIT", "30"))
+# sección 4-6 del SYSTEM_PROMPT). Cada mensaje nuevo reinicia la espera desde cero, sin tope:
+# el bot espera lo que haga falta hasta que el cliente termine de escribir.
+MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "7"))
 
 HTTP_TIMEOUT = 60  # segundos, para TODAS las llamadas HTTP
 
@@ -2361,22 +2359,14 @@ async def call_openrouter(messages: list) -> str:
 # de funcionar entre mensajes que caigan en réplicas distintas.
 # --------------------------------------------------------------------------------------
 _pending_tasks: dict = {}
-_burst_started_at: dict = {}
 
 
 def schedule_conversation_processing(conversation_id: int) -> None:
-    now = time.monotonic()
     existing = _pending_tasks.get(conversation_id)
     if existing and not existing.done():
         existing.cancel()
-    else:
-        _burst_started_at[conversation_id] = now
 
-    started_at = _burst_started_at.setdefault(conversation_id, now)
-    elapsed = now - started_at
-    wait = max(0.0, min(MSG_DEBOUNCE_SECONDS, MSG_DEBOUNCE_MAX_WAIT - elapsed))
-
-    task = asyncio.create_task(_process_after_delay(conversation_id, wait))
+    task = asyncio.create_task(_process_after_delay(conversation_id, MSG_DEBOUNCE_SECONDS))
     _pending_tasks[conversation_id] = task
 
 
@@ -2393,7 +2383,6 @@ async def _process_after_delay(conversation_id: int, wait_seconds: float) -> Non
     finally:
         if _pending_tasks.get(conversation_id) is asyncio.current_task():
             _pending_tasks.pop(conversation_id, None)
-            _burst_started_at.pop(conversation_id, None)
 
 
 async def process_conversation(conversation_id: int) -> None:
