@@ -2129,6 +2129,9 @@ CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
 PAUSE_LABEL = os.getenv("PAUSE_LABEL", "bot_off")
+# Etiqueta que se agrega sola a la conversación cuando el bot deriva al cliente a Camila
+# (se detecta porque el mensaje que manda contiene el link de NUMERO_CAMILA).
+DERIVADO_LABEL = os.getenv("DERIVADO_LABEL", "ddd")
 MAX_HISTORIAL = int(os.getenv("MAX_HISTORIAL", "20"))
 PORT = int(os.getenv("PORT", "8000"))
 
@@ -2182,6 +2185,23 @@ async def get_conversation_labels(conversation_id) -> list:
         logger.error(f"No se pudieron consultar las etiquetas de la conversación {conversation_id}: {e}. "
                       f"Se responderá igualmente.")
         return []
+
+
+async def add_conversation_label(conversation_id, label: str) -> None:
+    """Agrega una etiqueta a la conversación. Chatwoot reemplaza la lista completa de etiquetas
+    en cada POST (no es incremental), así que hay que traer las que ya tiene y sumarle la nueva."""
+    current = await get_conversation_labels(conversation_id)
+    if label in current:
+        return  # ya la tiene, no hace falta hacer nada
+    nuevas = current + [label]
+    url = f"{_chatwoot_base(conversation_id)}/labels"
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.post(url, headers=_chatwoot_headers(), json={"labels": nuevas})
+            resp.raise_for_status()
+        logger.info(f"Conversación {conversation_id}: etiqueta '{label}' agregada.")
+    except Exception as e:
+        logger.error(f"No se pudo agregar la etiqueta '{label}' a la conversación {conversation_id}: {e}")
 
 
 def _map_history(messages: list) -> list:
@@ -2628,6 +2648,12 @@ async def process_conversation(conversation_id: int) -> None:
         except Exception as e:
             logger.error(f"Error enviando una burbuja a la conversación {conversation_id}: {e}")
             break
+
+    # Si el mensaje incluye el link de Camila, es matemáticamente el handoff (ese link solo
+    # aparece en el prompt en ese momento) -> se le agrega la etiqueta sola, sin depender del
+    # criterio del modelo.
+    if NUMERO_CAMILA in reply:
+        await add_conversation_label(conversation_id, DERIVADO_LABEL)
 
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
