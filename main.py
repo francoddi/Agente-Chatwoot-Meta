@@ -17,6 +17,7 @@ import asyncio
 import base64
 import logging
 import os
+import random
 import re
 from datetime import datetime
 from datetime import time as dtime
@@ -2137,11 +2138,13 @@ PORT = int(os.getenv("PORT", "8000"))
 # el bot espera lo que haga falta hasta que el cliente termine de escribir.
 MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "7"))
 
-# Seguimiento automático: si el cliente no responde después de este tiempo (en segundos) desde
-# la última respuesta del bot, se le manda UN mensaje de seguimiento con contexto (ver NOTA
-# TÉCNICA en el SYSTEM_PROMPT). El bot puede marcar una respuesta como "tema cerrado" para que
-# no se programe seguimiento después de ella.
-FOLLOWUP_DELAY_SECONDS = float(os.getenv("FOLLOWUP_DELAY_SECONDS", "1800"))  # 30 minutos
+# Seguimiento automático: si el cliente no responde después de este tiempo desde la última
+# respuesta del bot, se le manda UN mensaje de seguimiento con contexto (ver NOTA TÉCNICA en el
+# SYSTEM_PROMPT). La espera se elige al azar entre estos dos valores (en segundos) cada vez que
+# se programa, para que no sea siempre exactamente el mismo tiempo. El bot puede marcar una
+# respuesta como "tema cerrado" para que no se programe seguimiento después de ella.
+FOLLOWUP_DELAY_MIN_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MIN_SECONDS", "2700"))  # 45 min
+FOLLOWUP_DELAY_MAX_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MAX_SECONDS", "3600"))  # 60 min
 FOLLOWUP_CLOSE_MARKER = "[FIN_SEGUIMIENTO]"
 
 HTTP_TIMEOUT = 60  # segundos, para TODAS las llamadas HTTP
@@ -2448,7 +2451,10 @@ def schedule_followup_check(conversation_id: int) -> None:
     if existing and not existing.done():
         existing.cancel()
 
-    task = asyncio.create_task(_followup_after_delay(conversation_id))
+    # Tiempo al azar entre los dos valores configurados, elegido de nuevo en cada programación
+    # (no siempre exactamente el mismo tiempo).
+    wait_seconds = random.uniform(FOLLOWUP_DELAY_MIN_SECONDS, FOLLOWUP_DELAY_MAX_SECONDS)
+    task = asyncio.create_task(_followup_after_delay(conversation_id, wait_seconds))
     _pending_followups[conversation_id] = task
 
 
@@ -2458,10 +2464,10 @@ def cancel_followup_check(conversation_id: int) -> None:
         existing.cancel()
 
 
-async def _followup_after_delay(conversation_id: int) -> None:
+async def _followup_after_delay(conversation_id: int, wait_seconds: float) -> None:
     try:
-        await asyncio.sleep(FOLLOWUP_DELAY_SECONDS)
-        await send_followup_if_needed(conversation_id)
+        await asyncio.sleep(wait_seconds)
+        await send_followup_if_needed(conversation_id, wait_seconds)
     except asyncio.CancelledError:
         # La conversación siguió (nueva respuesta real, o el tema se cerró): se reprogramó o
         # se canceló desde process_conversation.
@@ -2473,7 +2479,7 @@ async def _followup_after_delay(conversation_id: int) -> None:
             _pending_followups.pop(conversation_id, None)
 
 
-async def send_followup_if_needed(conversation_id: int) -> None:
+async def send_followup_if_needed(conversation_id: int, wait_seconds: float | None = None) -> None:
     """Si el cliente sigue sin responder, arma UN mensaje de seguimiento con contexto y lo
     manda. Esta función NUNCA programa otro seguimiento después de sí misma (regla 1): así,
     como mucho, el cliente recibe un solo empujón por cada silencio."""
@@ -2504,7 +2510,7 @@ async def send_followup_if_needed(conversation_id: int) -> None:
         return
 
     history = _map_history(visibles)
-    minutos = int(FOLLOWUP_DELAY_SECONDS // 60)
+    minutos = int((wait_seconds if wait_seconds is not None else FOLLOWUP_DELAY_MIN_SECONDS) // 60)
     nudge = (
         f"[Instrucción interna de seguimiento automático — esto NO es una respuesta a un "
         f"mensaje del cliente, es un chequeo que dispara el sistema porque no respondió en los "
