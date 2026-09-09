@@ -224,7 +224,7 @@ NO respondas obligatoriamente a cada mensaje por separado.
 
 Cuando el sistema lo permita:
 
-esperá aproximadamente 15 segundos desde el último mensaje recibido para comprobar si el cliente está terminando de escribir.
+el sistema agrupa automáticamente los mensajes que lleguen mientras estás generando una respuesta — vos no tenés que calcular ningún tiempo de espera, eso ya está resuelto por fuera.
 
 Si durante esa ventana llega otro mensaje:
 
@@ -277,11 +277,9 @@ Entonces responder algo como:
 5. EL DELAY ES PARA AGRUPAR, NO PARA IGNORAR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-La espera aproximada de 15 segundos existe para permitir que el cliente termine de expresar su idea.
+El agrupamiento automático existe para permitir que el cliente termine de expresar su idea, no para hacerlo esperar sin sentido.
 
 No significa dejar conversaciones abandonadas.
-
-No significa esperar siempre exactamente 15 segundos si ya existe una razón operativa para responder antes.
 
 La prioridad es evitar el patrón artificial:
 
@@ -2172,10 +2170,14 @@ MAX_HISTORIAL = int(os.getenv("MAX_HISTORIAL", "20"))
 PORT = int(os.getenv("PORT", "8000"))
 
 # Agrupamiento de mensajes ("debounce"): al recibir un mensaje se espera esta cantidad de
-# segundos por si el cliente sigue escribiendo, para responder a toda la tanda junta (ver
-# sección 4-6 del SYSTEM_PROMPT). Cada mensaje nuevo reinicia la espera desde cero, sin tope:
-# el bot espera lo que haga falta hasta que el cliente termine de escribir.
-MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "7"))
+# segundos antes de empezar a generar la respuesta (ver sección 4-6 del SYSTEM_PROMPT). En 0
+# (default), el bot arranca a generar al toque; si llega un mensaje nuevo MIENTRAS está
+# generando (arriba en schedule_conversation_processing se cancela la tarea en curso), esa
+# generación se descarta y arranca de nuevo desde cero con todo lo que haya hasta ese momento.
+# Así, el propio tiempo que tarda el modelo en responder actúa como ventana de agrupamiento:
+# si el cliente sigue escribiendo, se sigue reiniciando; recién se manda una respuesta cuando
+# hay una pausa real más larga que lo que tarda una generación completa.
+MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "0"))
 
 # Seguimiento automático: si el cliente no responde después de este tiempo desde la última
 # respuesta del bot, se le manda UN mensaje de seguimiento con contexto (ver NOTA TÉCNICA en el
