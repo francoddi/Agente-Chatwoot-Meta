@@ -2166,6 +2166,16 @@ PAUSE_LABEL = os.getenv("PAUSE_LABEL", "bot_off")
 # Etiqueta que se agrega sola a la conversación cuando el bot deriva al cliente a Camila
 # (se detecta porque el mensaje que manda contiene el link de NUMERO_CAMILA).
 DERIVADO_LABEL = os.getenv("DERIVADO_LABEL", "ddd")
+
+# Canal interno de seguimiento (opcional): un inbox de WhatsApp APARTE del de los clientes,
+# donde el bot avisa cada vez que deriva a alguien a Camila (solo la ficha, sin precio ni
+# link), y donde alguien puede responder "contactado <numero>" para marcarlo. Esta conversación
+# NUNCA corre la lógica de Valentina/el SYSTEM_PROMPT — es código aparte, sin IA.
+# Vacío = deshabilitado. Alguien tiene que escribirle primero a este número para "activarlo"
+# (ventana de 24hs de WhatsApp) antes de que el bot le pueda mandar notificaciones.
+SEGUIMIENTO_INBOX_ID = os.getenv("SEGUIMIENTO_INBOX_ID", "")
+CONTACTADO_LABEL = os.getenv("CONTACTADO_LABEL", "contactado")
+
 MAX_HISTORIAL = int(os.getenv("MAX_HISTORIAL", "20"))
 PORT = int(os.getenv("PORT", "8000"))
 
@@ -2240,6 +2250,81 @@ async def add_conversation_label(conversation_id, label: str) -> None:
         logger.info(f"Conversación {conversation_id}: etiqueta '{label}' agregada.")
     except Exception as e:
         logger.error(f"No se pudo agregar la etiqueta '{label}' a la conversación {conversation_id}: {e}")
+
+
+# --------------------------------------------------------------------------------------
+# Canal de seguimiento (opcional): inbox aparte, sin Valentina, para llevar registro de las
+# derivaciones a Camila. Ver SEGUIMIENTO_INBOX_ID.
+# --------------------------------------------------------------------------------------
+async def _get_seguimiento_conversation_id():
+    """Busca la conversación activa en el inbox de seguimiento (asume una sola conversación
+    por inbox: quien lo usa). Devuelve None si todavía nadie le escribió a ese número."""
+    url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers=_chatwoot_headers(),
+                                     params={"inbox_id": SEGUIMIENTO_INBOX_ID, "status": "all"})
+            resp.raise_for_status()
+            payload = resp.json().get("data", {}).get("payload", []) or []
+    except Exception as e:
+        logger.error(f"No se pudo buscar la conversación del canal de seguimiento: {e}")
+        return None
+
+    if not payload:
+        return None
+    payload = sorted(payload, key=lambda c: c.get("last_activity_at") or 0, reverse=True)
+    return payload[0].get("id")
+
+
+async def notify_seguimiento(conversation_id: int, ficha: str) -> None:
+    """Avisa en el canal de seguimiento que se derivó una conversación a Camila, mandando
+    SOLO la ficha de datos (sin precio, sin el link de Camila)."""
+    if not SEGUIMIENTO_INBOX_ID:
+        return
+
+    seguimiento_conv_id = await _get_seguimiento_conversation_id()
+    if not seguimiento_conv_id:
+        logger.warning("Hay una derivación nueva pero el canal de seguimiento todavía no tiene "
+                        "conversación activa — alguien tiene que escribirle primero a ese número "
+                        "para activarlo.")
+        return
+
+    mensaje = (
+        f"🔔 Nueva derivación — conversación #{conversation_id}\n\n"
+        f"{ficha}\n\n"
+        f"Respondé \"contactado {conversation_id}\" cuando Camila ya le haya escrito."
+    )
+    try:
+        await send_message(seguimiento_conv_id, mensaje)
+    except Exception as e:
+        logger.error(f"No se pudo notificar la derivación en el canal de seguimiento: {e}")
+
+
+async def handle_seguimiento_message(seguimiento_conversation_id: int, texto: str) -> None:
+    """Maneja un mensaje entrante en el inbox de seguimiento. NO corre Valentina ni el LLM —
+    solo busca el patrón "contactado <numero de conversación>" y marca esa conversación."""
+    match = re.search(r"contactad[oa]\s*#?\s*(\d+)", texto or "", re.IGNORECASE)
+    if not match:
+        try:
+            await send_message(
+                seguimiento_conversation_id,
+                "no entendí ese mensaje. para marcar una derivación como contactada, escribí: "
+                "contactado <número de conversación>",
+            )
+        except Exception as e:
+            logger.error(f"Error respondiendo en el canal de seguimiento: {e}")
+        return
+
+    conv_id = int(match.group(1))
+    try:
+        await add_conversation_label(conv_id, CONTACTADO_LABEL)
+        await send_message(seguimiento_conversation_id, f"listo, marcado como contactado: conversación #{conv_id} ✅")
+    except Exception as e:
+        logger.error(f"Error marcando como contactado la conversación {conv_id}: {e}")
+        try:
+            await send_message(seguimiento_conversation_id, f"hubo un error marcando la conversación #{conv_id}, probá de nuevo")
+        except Exception:
+            pass
 
 
 def _map_history(messages: list) -> list:
@@ -2693,9 +2778,12 @@ async def process_conversation(conversation_id: int) -> None:
 
     # Si el mensaje incluye el link de Camila, es matemáticamente el handoff (ese link solo
     # aparece en el prompt en ese momento) -> se le agrega la etiqueta sola, sin depender del
-    # criterio del modelo.
+    # criterio del modelo, y se avisa en el canal de seguimiento (solo la ficha, sin precio).
     if NUMERO_CAMILA in reply:
         await add_conversation_label(conversation_id, DERIVADO_LABEL)
+        ficha = next((b for b in bubbles if "Hola Camila" in b), None)
+        if ficha:
+            await notify_seguimiento(conversation_id, ficha)
 
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
@@ -2745,6 +2833,14 @@ async def webhook(request: Request):
     attachments = payload.get("attachments") or []
     logger.info(f"Mensaje recibido: conversación={conversation_id} mensaje={message_id} "
                 f"adjuntos={len(attachments)}")
+
+    # Canal de seguimiento (inbox aparte, opcional): NUNCA corre Valentina/el LLM acá, es un
+    # flujo de código separado que solo entiende "contactado <numero>". Se resuelve ya mismo,
+    # sin pasar por el debounce ni por la pausa manual (son cosas del flujo de ventas).
+    inbox_id = conversation.get("inbox_id") or (payload.get("inbox") or {}).get("id")
+    if SEGUIMIENTO_INBOX_ID and str(inbox_id) == str(SEGUIMIENTO_INBOX_ID):
+        await handle_seguimiento_message(conversation_id, payload.get("content") or "")
+        return {"status": "ok", "channel": "seguimiento"}
 
     # Pausa manual: si tiene la etiqueta PAUSE_LABEL, no responder (humano atendiendo). Se
     # vuelve a chequear justo antes de responder, por si se pausa mientras se espera el debounce.
