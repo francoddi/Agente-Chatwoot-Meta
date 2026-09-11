@@ -2471,10 +2471,33 @@ async def _fetch_all_conversations() -> list:
     return conversaciones
 
 
+async def _obtener_campos_ficha_conversacion(conversation_id) -> dict:
+    """Busca el mensaje de ficha ("Hola Camila, quiero avanzar...") en una conversación y
+    devuelve sus campos parseados. Devuelve {} si no la encuentra."""
+    url = _chatwoot_base(conversation_id) + "/messages"
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers=_chatwoot_headers())
+            resp.raise_for_status()
+            msgs = resp.json().get("payload", []) or []
+    except Exception as e:
+        logger.error(f"No se pudieron traer los mensajes de la conversación {conversation_id} "
+                      f"para el resumen diario: {e}")
+        return {}
+    ficha = next(
+        (m.get("content") for m in msgs if "Hola Camila, quiero avanzar" in (m.get("content") or "")),
+        None,
+    )
+    if not ficha:
+        return {}
+    return _parse_ficha_fields(ficha)
+
+
 async def _contar_leads_del_dia(fecha: date) -> tuple:
     """Cuenta cuántos leads (conversaciones nuevas, excluyendo a Camila y al dueño) entraron
-    el día dado (huso Argentina), y cuántos de esos ya están derivados (etiqueta ddd).
-    Devuelve (recibidos, derivados)."""
+    el día dado (huso Argentina), y cuántas VENTAS POR CERRAR hay entre esos — cada línea que
+    porta un cliente cuenta por separado (uno con 4 líneas suma 4, no 1), igual que en Sheets.
+    Devuelve (recibidos, ventas_por_cerrar)."""
     inicio = datetime.combine(fecha, dtime.min, tzinfo=CAMILA_TIMEZONE).timestamp()
     fin = datetime.combine(fecha, dtime.max, tzinfo=CAMILA_TIMEZONE).timestamp()
     excluir = {t for t in (_digits_only(NUMERO_CAMILA), _digits_only(NUMERO_DUENO)) if t}
@@ -2493,9 +2516,15 @@ async def _contar_leads_del_dia(fecha: date) -> tuple:
     ids_del_dia = {c.get("id") for c in del_dia}
 
     derivadas = await _fetch_all_conversations_by_label(DERIVADO_LABEL)
-    derivadas_del_dia = sum(1 for c in derivadas if c.get("id") in ids_del_dia)
+    derivadas_del_dia = [c for c in derivadas if c.get("id") in ids_del_dia]
 
-    return len(del_dia), derivadas_del_dia
+    ventas_por_cerrar = 0
+    for c in derivadas_del_dia:
+        campos = await _obtener_campos_ficha_conversacion(c.get("id"))
+        numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) if campos else []
+        ventas_por_cerrar += len(numeros) if numeros else 1  # sin ficha detectable, cuenta como 1
+
+    return len(del_dia), ventas_por_cerrar
 
 
 async def _fetch_all_conversations_by_label(label: str) -> list:
@@ -2529,16 +2558,16 @@ async def enviar_resumen_diario(fecha: date) -> None:
         return
 
     try:
-        recibidos, derivados = await _contar_leads_del_dia(fecha)
+        recibidos, ventas_por_cerrar = await _contar_leads_del_dia(fecha)
     except Exception as e:
         logger.error(f"No se pudo calcular el resumen diario del {fecha}: {e}")
         return
 
-    conversion = round((derivados / recibidos * 100), 1) if recibidos else 0.0
+    conversion = round((ventas_por_cerrar / recibidos * 100), 1) if recibidos else 0.0
     mensaje = (
         f"📊 Resumen del {fecha.strftime('%d/%m/%Y')}\n\n"
         f"Leads recibidos: {recibidos}\n"
-        f"Leads delegados: {derivados}\n"
+        f"Ventas por cerrar: {ventas_por_cerrar}\n"
         f"Conversión: {conversion}%"
     )
 
