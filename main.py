@@ -2471,39 +2471,46 @@ async def _fetch_all_conversations() -> list:
     return conversaciones
 
 
-async def _obtener_campos_ficha_conversacion(conversation_id) -> dict:
-    """Busca el mensaje de ficha ("Hola Camila, quiero avanzar...") en una conversación y
-    devuelve sus campos parseados. Devuelve {} si no la encuentra."""
-    url = _chatwoot_base(conversation_id) + "/messages"
+async def _contar_ventas_por_cerrar_del_dia(fecha: date) -> int:
+    """Cuenta directamente en la planilla de Sheets cuántas filas tienen "Fecha de venta"
+    igual al día dado — así el resumen SIEMPRE coincide con lo que se ve en la planilla (cada
+    línea ya es su propia fila ahí, así que esto ya cuenta líneas, no conversaciones)."""
+    if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
+        return 0
+    token = await _get_sheets_access_token()
+    if not token:
+        return 0
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!D:D", safe="")
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
+        f"/values/{encoded_range}"
+    )
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(url, headers=_chatwoot_headers())
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             resp.raise_for_status()
-            msgs = resp.json().get("payload", []) or []
+            values = resp.json().get("values", []) or []
     except Exception as e:
-        logger.error(f"No se pudieron traer los mensajes de la conversación {conversation_id} "
-                      f"para el resumen diario: {e}")
-        return {}
-    ficha = next(
-        (m.get("content") for m in msgs if "Hola Camila, quiero avanzar" in (m.get("content") or "")),
-        None,
-    )
-    if not ficha:
-        return {}
-    return _parse_ficha_fields(ficha)
+        logger.error(f"No se pudo leer la columna de fechas de Sheets para el resumen diario: {e}")
+        return 0
+
+    fecha_str = fecha.strftime("%d/%m/%Y")
+    return sum(1 for row in values[1:] if row and row[0] == fecha_str)
 
 
 async def _contar_leads_del_dia(fecha: date) -> tuple:
     """Cuenta cuántos leads (conversaciones nuevas, excluyendo a Camila y al dueño) entraron
-    el día dado (huso Argentina), y cuántas VENTAS POR CERRAR hay entre esos — cada línea que
-    porta un cliente cuenta por separado (uno con 4 líneas suma 4, no 1), igual que en Sheets.
+    el día dado (huso Argentina), y cuántas VENTAS POR CERRAR hubo ESE MISMO DÍA (leídas
+    directo de Sheets, para que siempre coincida con la planilla — un cliente puede escribir
+    un día y cerrar la venta otro día distinto, así que estos dos números son de cohortes
+    distintas a propósito: "cuántos llegaron hoy" vs "cuántas ventas se cerraron hoy").
     Devuelve (recibidos, ventas_por_cerrar)."""
     inicio = datetime.combine(fecha, dtime.min, tzinfo=CAMILA_TIMEZONE).timestamp()
     fin = datetime.combine(fecha, dtime.max, tzinfo=CAMILA_TIMEZONE).timestamp()
     excluir = {t for t in (_digits_only(NUMERO_CAMILA), _digits_only(NUMERO_DUENO)) if t}
 
     todas = await _fetch_all_conversations()
-    del_dia = []
+    recibidos = 0
     for c in todas:
         creado = c.get("created_at")
         if creado is None or not (inicio <= creado <= fin):
@@ -2511,45 +2518,11 @@ async def _contar_leads_del_dia(fecha: date) -> tuple:
         phone = _digits_only((c.get("meta", {}).get("sender", {}) or {}).get("phone_number", ""))
         if phone and phone[-10:] in {t[-10:] for t in excluir}:
             continue
-        del_dia.append(c)
+        recibidos += 1
 
-    ids_del_dia = {c.get("id") for c in del_dia}
+    ventas_por_cerrar = await _contar_ventas_por_cerrar_del_dia(fecha)
 
-    derivadas = await _fetch_all_conversations_by_label(DERIVADO_LABEL)
-    derivadas_del_dia = [c for c in derivadas if c.get("id") in ids_del_dia]
-
-    ventas_por_cerrar = 0
-    for c in derivadas_del_dia:
-        campos = await _obtener_campos_ficha_conversacion(c.get("id"))
-        numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) if campos else []
-        ventas_por_cerrar += len(numeros) if numeros else 1  # sin ficha detectable, cuenta como 1
-
-    return len(del_dia), ventas_por_cerrar
-
-
-async def _fetch_all_conversations_by_label(label: str) -> list:
-    """Trae todas las conversaciones que tienen una etiqueta específica (recorre páginas)."""
-    conversaciones = []
-    page = 1
-    while True:
-        url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
-        try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                resp = await client.get(url, headers=_chatwoot_headers(),
-                                         params={"labels[]": label, "status": "all", "page": page})
-                resp.raise_for_status()
-                data = resp.json()
-        except Exception as e:
-            logger.error(f"No se pudieron traer conversaciones con etiqueta '{label}' para el resumen diario: {e}")
-            break
-        payload = data.get("data", {}).get("payload", []) or data.get("payload", []) or []
-        if not payload:
-            break
-        conversaciones.extend(payload)
-        page += 1
-        if page > 50:
-            break
-    return conversaciones
+    return recibidos, ventas_por_cerrar
 
 
 async def enviar_resumen_diario(fecha: date) -> None:
