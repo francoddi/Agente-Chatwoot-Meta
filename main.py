@@ -2476,7 +2476,7 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
         return
 
-    fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y %H:%M")
+    fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y")
 
     row = [
         "",  # Estado (lo completa el equipo)
