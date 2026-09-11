@@ -15,17 +15,21 @@ Para correr en local:
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import random
 import re
 from datetime import datetime
 from datetime import time as dtime
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2 import service_account
 
 load_dotenv()
 
@@ -742,6 +746,8 @@ NUMERO_A_PORTAR:
 
 CUIT:
 
+EMAIL:
+
 LOCALIDAD:
 
 PROVINCIA:
@@ -1328,6 +1334,7 @@ Obtener:
 - compañía actual
 - número que quiere portar
 - plan elegido
+- email
 - localidad
 - provincia
 - dirección
@@ -1348,6 +1355,7 @@ Obtener:
 - número a portar
 - plan elegido
 - CUIT
+- email
 - localidad
 - provincia
 - dirección
@@ -1367,6 +1375,7 @@ Obtener:
 
 - nombre
 - plan
+- email
 - localidad
 - provincia
 - dirección
@@ -1384,7 +1393,7 @@ Podés usar uno o varios mensajes.
 Ejemplo:
 
 Mensaje 1:
-"pasame nombre, localidad, provincia, direccion y codigo postal"
+"pasame nombre, email, localidad, provincia, direccion y codigo postal"
 
 Después, cuando responda:
 
@@ -1419,6 +1428,8 @@ NOMBRE
 
 NUMERO_A_PORTAR si corresponde
 
+EMAIL
+
 LOCALIDAD
 
 PROVINCIA
@@ -1452,6 +1463,8 @@ NOMBRE
 NUMERO_A_PORTAR si corresponde
 
 CUIT
+
+EMAIL
 
 LOCALIDAD
 
@@ -1577,6 +1590,7 @@ Nombre: [NOMBRE]
 Compañía actual: [COMPANIA]
 Número a portar: [NUMERO]
 Plan elegido: [PLAN]
+Email: [EMAIL]
 Localidad: [LOCALIDAD]
 Provincia: [PROVINCIA]
 Dirección: [DIRECCION]
@@ -1601,6 +1615,7 @@ Compañía actual: [COMPANIA]
 Número a portar: [NUMERO]
 Plan elegido: [PLAN]
 CUIT: [CUIT]
+Email: [EMAIL]
 Localidad: [LOCALIDAD]
 Provincia: [PROVINCIA]
 Dirección: [DIRECCION]
@@ -1618,6 +1633,7 @@ Tipo de portabilidad: Línea nueva
 Tipo de cliente: [Consumidor final o Empresa, el que corresponda]
 Nombre: [NOMBRE]
 Plan elegido: [PLAN]
+Email: [EMAIL]
 Localidad: [LOCALIDAD]
 Provincia: [PROVINCIA]
 Dirección: [DIRECCION]
@@ -1955,6 +1971,7 @@ Nombre: Juan Perez
 Compañía actual: Movistar
 Número a portar: 223XXXXXXX
 Plan elegido: 30 GB
+Email: juan.perez@gmail.com
 Localidad: Mar del Plata
 Provincia: Buenos Aires
 Dirección: XXXX
@@ -2176,6 +2193,15 @@ DERIVADO_LABEL = os.getenv("DERIVADO_LABEL", "ddd")
 SEGUIMIENTO_INBOX_ID = os.getenv("SEGUIMIENTO_INBOX_ID", "")
 CONTACTADO_LABEL = os.getenv("CONTACTADO_LABEL", "contactado")
 
+# Registro automático en Google Sheets (opcional): cada derivación a Camila agrega una fila.
+# GOOGLE_SHEETS_CREDENTIALS_JSON es el contenido completo del archivo .json de una cuenta de
+# servicio de Google Cloud (con la API de Sheets habilitada), pegado como una sola línea. Esa
+# cuenta de servicio tiene que tener permiso de Editor en la planilla (se comparte por su
+# "client_email", como a cualquier persona). Vacío = deshabilitado.
+GOOGLE_SHEETS_CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
+GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
+GOOGLE_SHEETS_SHEET_NAME = os.getenv("GOOGLE_SHEETS_SHEET_NAME", "Hoja 1")
+
 MAX_HISTORIAL = int(os.getenv("MAX_HISTORIAL", "20"))
 PORT = int(os.getenv("PORT", "8000"))
 
@@ -2325,6 +2351,150 @@ async def handle_seguimiento_message(seguimiento_conversation_id: int, texto: st
             await send_message(seguimiento_conversation_id, f"hubo un error marcando la conversación #{conv_id}, probá de nuevo")
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------------------
+# Registro automático en Google Sheets (opcional): cada derivación a Camila agrega una fila.
+# Ver GOOGLE_SHEETS_CREDENTIALS_JSON.
+# --------------------------------------------------------------------------------------
+_GOOGLE_SHEETS_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+_sheets_credentials = None  # cacheadas entre llamadas; se refrescan solas cuando vencen
+
+
+def _load_sheets_credentials():
+    global _sheets_credentials
+    if _sheets_credentials is not None:
+        return _sheets_credentials
+    if not GOOGLE_SHEETS_CREDENTIALS_JSON:
+        return None
+    try:
+        info = json.loads(GOOGLE_SHEETS_CREDENTIALS_JSON)
+        _sheets_credentials = service_account.Credentials.from_service_account_info(
+            info, scopes=_GOOGLE_SHEETS_SCOPES
+        )
+    except Exception as e:
+        logger.error(f"No se pudieron cargar las credenciales de Google Sheets (revisá "
+                      f"GOOGLE_SHEETS_CREDENTIALS_JSON): {e}")
+        return None
+    return _sheets_credentials
+
+
+async def _get_sheets_access_token():
+    creds = _load_sheets_credentials()
+    if creds is None:
+        return None
+    if not creds.valid:
+        # creds.refresh() es sincrónico (hace una llamada HTTP por dentro) -> se corre en un
+        # thread aparte para no bloquear el event loop.
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, creds.refresh, GoogleAuthRequest())
+        except Exception as e:
+            logger.error(f"No se pudo refrescar el token de Google Sheets: {e}")
+            return None
+    return creds.token
+
+
+async def append_google_sheets_row(row: list) -> None:
+    """Agrega una fila al final de la hoja configurada."""
+    if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
+        return
+
+    token = await _get_sheets_access_token()
+    if not token:
+        logger.error("No se pudo obtener un token de Google Sheets; no se agregó la fila.")
+        return
+
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:A", safe="")
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
+        f"/values/{encoded_range}:append"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"},
+                json={"values": [row]},
+            )
+            if resp.status_code >= 400:
+                logger.error(f"Google Sheets devolvió error {resp.status_code}: {resp.text[:1000]}")
+                resp.raise_for_status()
+        logger.info("Fila agregada a Google Sheets.")
+    except Exception as e:
+        logger.error(f"No se pudo agregar la fila a Google Sheets: {e}")
+
+
+def _parse_ficha_fields(ficha: str) -> dict:
+    """Convierte la ficha ("Campo: Valor" línea por línea) en un diccionario."""
+    campos = {}
+    for linea in ficha.splitlines():
+        if ":" not in linea:
+            continue
+        clave, _, valor = linea.partition(":")
+        clave = clave.strip()
+        valor = valor.strip()
+        if clave and valor:
+            campos[clave] = valor
+    return campos
+
+
+async def _get_contact_phone(conversation_id) -> str:
+    """Número de WhatsApp del cliente, tomado de los metadatos de Chatwoot (no se le pregunta
+    al cliente, ya lo tenemos porque es con el que nos está escribiendo)."""
+    url = _chatwoot_base(conversation_id)
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers=_chatwoot_headers())
+            resp.raise_for_status()
+            data = resp.json()
+            sender = (data.get("meta") or {}).get("sender") or {}
+            return sender.get("phone_number") or ""
+    except Exception as e:
+        logger.error(f"No se pudo obtener el número de contacto de la conversación {conversation_id}: {e}")
+        return ""
+
+
+async def log_to_google_sheets(conversation_id: int, ficha: str) -> None:
+    """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
+    a la planilla. Columnas fijas, en este orden:
+
+    Fecha portación | Fecha de venta | Nombre y apellido | DNI | F. nac | Email |
+    Empresa donante | Segmento | Provincia | Localidad | Direcc entrega | Altura | Piso/depto |
+    CP | Número a portar | Número de contacto | Plan
+
+    DNI, F. nac, Altura y Piso/depto quedan vacíos a propósito (no son datos que pida
+    Valentina); Fecha portación también queda vacía (la completa el equipo cuando se hace el
+    cambio real). "Segmento" se completa con Tipo de cliente (Consumidor final / Empresa).
+    """
+    if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
+        return
+
+    campos = _parse_ficha_fields(ficha)
+    telefono = await _get_contact_phone(conversation_id)
+    fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y %H:%M")
+
+    row = [
+        "",  # Fecha portación (la completa el equipo)
+        fecha_venta,
+        campos.get("Nombre", ""),
+        "",  # DNI (lo pide Camila)
+        "",  # F. nac
+        campos.get("Email", ""),
+        campos.get("Compañía actual", ""),
+        campos.get("Tipo de cliente", ""),  # Segmento
+        campos.get("Provincia", ""),
+        campos.get("Localidad", ""),
+        campos.get("Dirección", ""),
+        "",  # Altura
+        "",  # Piso/depto
+        campos.get("Código postal", ""),
+        campos.get("Número a portar", ""),
+        telefono,
+        campos.get("Plan elegido", ""),
+    ]
+    await append_google_sheets_row(row)
 
 
 def _map_history(messages: list) -> list:
@@ -2778,12 +2948,14 @@ async def process_conversation(conversation_id: int) -> None:
 
     # Si el mensaje incluye el link de Camila, es matemáticamente el handoff (ese link solo
     # aparece en el prompt en ese momento) -> se le agrega la etiqueta sola, sin depender del
-    # criterio del modelo, y se avisa en el canal de seguimiento (solo la ficha, sin precio).
+    # criterio del modelo, se avisa en el canal de seguimiento y se registra en Google Sheets
+    # (en los tres casos, solo la ficha, sin precio).
     if NUMERO_CAMILA in reply:
         await add_conversation_label(conversation_id, DERIVADO_LABEL)
         ficha = next((b for b in bubbles if "Hola Camila" in b), None)
         if ficha:
             await notify_seguimiento(conversation_id, ficha)
+            await log_to_google_sheets(conversation_id, ficha)
 
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
