@@ -1557,6 +1557,31 @@ No decir antes:
 si todavía falta información.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+47.1 "YA TENGO/RECIBÍ EL CHIP" NO ES EXCUSA PARA SALTEAR DATOS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Si el cliente dice cosas como:
+
+"ya recibí mi chip, como sigo"
+
+"ya me llegó el chip"
+
+"tengo el chip, que hago ahora"
+
+Esto NO significa que ya está todo listo para el handoff, y NO es una razón para saltear el
+checklist de datos (secciones 40-42). El chip haber llegado no reemplaza los datos que
+Valentina tiene que juntar en ESTA conversación.
+
+Si en esta conversación todavía no le pediste sus datos (nombre, compañía, DNI/CUIT, plan,
+dirección, etc.), tratalo como a cualquier cliente nuevo: seguí el flujo normal, hacé las
+preguntas que correspondan, y recién cuando el checklist esté completo generás la ficha y
+lo derivás a Camila (sección 47).
+
+NUNCA le pases el link de Camila sin la ficha de datos completa atrás. Si no tenés los datos
+necesarios para armar la ficha, todavía no es momento de derivar, sin importar lo que diga
+sobre el chip.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 48. QUIÉN ES CAMILA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -2987,18 +3012,22 @@ async def process_conversation(conversation_id: int) -> None:
             logger.error(f"Error enviando una burbuja a la conversación {conversation_id}: {e}")
             break
 
-    # Si el mensaje incluye el link de Camila, es matemáticamente el handoff (ese link solo
-    # aparece en el prompt en ese momento) -> se le agrega la etiqueta sola, sin depender del
-    # criterio del modelo, se registra la fila en Google Sheets y se avisa en el canal de
-    # seguimiento con solo el número de contacto (sin la ficha completa).
+    # Si el mensaje incluye el link de Camila Y la ficha de datos completa, es el handoff real
+    # -> se le agrega la etiqueta, se registra la fila en Google Sheets y se avisa en el canal
+    # de seguimiento. Si el link aparece SIN ficha (el modelo no debería hacer esto, pero por
+    # las dudas), no se etiqueta ni se registra nada — no es una derivación completa, y
+    # etiquetarla como "ddd" ensuciaría el tracking con casos sin datos reales.
     if NUMERO_CAMILA in reply:
-        await add_conversation_label(conversation_id, DERIVADO_LABEL)
         ficha = next((b for b in bubbles if "Hola Camila" in b), None)
         if ficha:
+            await add_conversation_label(conversation_id, DERIVADO_LABEL)
             campos = _parse_ficha_fields(ficha)
             telefono = await _get_contact_phone(conversation_id)
             await log_to_google_sheets(campos, telefono)
             await notify_camila_carga_sheets(campos, telefono)
+        else:
+            logger.warning(f"Conversación {conversation_id}: se mandó el link de Camila SIN "
+                            f"ficha de datos — revisar, no debería pasar.")
 
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
