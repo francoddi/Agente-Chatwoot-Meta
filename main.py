@@ -2184,15 +2184,6 @@ PAUSE_LABEL = os.getenv("PAUSE_LABEL", "bot_off")
 # (se detecta porque el mensaje que manda contiene el link de NUMERO_CAMILA).
 DERIVADO_LABEL = os.getenv("DERIVADO_LABEL", "ddd")
 
-# Canal interno de seguimiento (opcional): un inbox de WhatsApp APARTE del de los clientes,
-# donde el bot avisa cada vez que deriva a alguien a Camila (solo la ficha, sin precio ni
-# link), y donde alguien puede responder "contactado <numero>" para marcarlo. Esta conversación
-# NUNCA corre la lógica de Valentina/el SYSTEM_PROMPT — es código aparte, sin IA.
-# Vacío = deshabilitado. Alguien tiene que escribirle primero a este número para "activarlo"
-# (ventana de 24hs de WhatsApp) antes de que el bot le pueda mandar notificaciones.
-SEGUIMIENTO_INBOX_ID = os.getenv("SEGUIMIENTO_INBOX_ID", "")
-CONTACTADO_LABEL = os.getenv("CONTACTADO_LABEL", "contactado")
-
 # Registro automático en Google Sheets (opcional): cada derivación a Camila agrega una fila.
 # GOOGLE_SHEETS_CREDENTIALS_JSON es el contenido completo del archivo .json de una cuenta de
 # servicio de Google Cloud (con la API de Sheets habilitada), pegado como una sola línea. Esa
@@ -2279,29 +2270,13 @@ async def add_conversation_label(conversation_id, label: str) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# Canal de seguimiento (opcional): inbox aparte, sin Valentina, para llevar registro de las
-# derivaciones a Camila. Ver SEGUIMIENTO_INBOX_ID.
+# Aviso a Camila (opcional): cada vez que se carga una fila en Sheets, se le manda un mensaje
+# normal de WhatsApp (como a cualquier contacto) por el mismo número que le habla a los
+# clientes. No requiere ningún inbox aparte. Ver NUMERO_CAMILA.
+#
+# Requisito de WhatsApp (no es cosa nuestra, es una regla de Meta): Camila tiene que haberle
+# escrito ella primero a ese número para que se le puedan mandar mensajes fuera de plantilla.
 # --------------------------------------------------------------------------------------
-async def _get_seguimiento_conversation_id():
-    """Busca la conversación activa en el inbox de seguimiento (asume una sola conversación
-    por inbox: quien lo usa). Devuelve None si todavía nadie le escribió a ese número."""
-    url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
-    try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(url, headers=_chatwoot_headers(),
-                                     params={"inbox_id": SEGUIMIENTO_INBOX_ID, "status": "all"})
-            resp.raise_for_status()
-            payload = resp.json().get("data", {}).get("payload", []) or []
-    except Exception as e:
-        logger.error(f"No se pudo buscar la conversación del canal de seguimiento: {e}")
-        return None
-
-    if not payload:
-        return None
-    payload = sorted(payload, key=lambda c: c.get("last_activity_at") or 0, reverse=True)
-    return payload[0].get("id")
-
-
 def _digits_only(numero: str) -> str:
     return re.sub(r"\D", "", numero or "")
 
@@ -2315,18 +2290,54 @@ def _mismo_telefono(a: str, b: str) -> bool:
     return da[-10:] == db[-10:]
 
 
-async def notify_seguimiento_sheets(campos: dict, telefono: str) -> None:
-    """Avisa en el canal de seguimiento que se cargó una fila nueva en la planilla, con el
+async def _find_camila_conversation_id():
+    """Busca la conversación más reciente con el contacto de Camila (NUMERO_CAMILA), para
+    poder mandarle un mensaje como a cualquier cliente. Devuelve None si todavía no existe
+    (necesita habernos escrito ella primero para abrir la ventana de WhatsApp)."""
+    telefono = _digits_only(NUMERO_CAMILA)
+    if not telefono:
+        return None
+
+    search_url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/contacts/search"
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(search_url, headers=_chatwoot_headers(), params={"q": telefono})
+            resp.raise_for_status()
+            contacts = resp.json().get("payload", []) or []
+    except Exception as e:
+        logger.error(f"No se pudo buscar el contacto de Camila en Chatwoot: {e}")
+        return None
+    if not contacts:
+        return None
+    contact_id = contacts[0].get("id")
+
+    conv_url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/contacts/{contact_id}/conversations"
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(conv_url, headers=_chatwoot_headers())
+            resp.raise_for_status()
+            convs = resp.json().get("payload", []) or []
+    except Exception as e:
+        logger.error(f"No se pudieron obtener las conversaciones de Camila: {e}")
+        return None
+    if not convs:
+        return None
+    convs = sorted(convs, key=lambda c: c.get("last_activity_at") or 0, reverse=True)
+    return convs[0].get("id")
+
+
+async def notify_camila_carga_sheets(campos: dict, telefono: str) -> None:
+    """Le avisa a Camila por WhatsApp que se cargó una fila nueva en la planilla, con el
     número de contacto del cliente. Si el "número a portar" que dio el cliente es distinto
     del número de contacto, lo aclara (no suele pasar)."""
-    if not SEGUIMIENTO_INBOX_ID:
+    if not NUMERO_CAMILA:
         return
 
-    seguimiento_conv_id = await _get_seguimiento_conversation_id()
-    if not seguimiento_conv_id:
-        logger.warning("Hay una derivación nueva pero el canal de seguimiento todavía no tiene "
-                        "conversación activa — alguien tiene que escribirle primero a ese número "
-                        "para activarlo.")
+    conv_id = await _find_camila_conversation_id()
+    if not conv_id:
+        logger.warning("Hay una carga nueva en Sheets pero Camila todavía no tiene conversación "
+                        "activa en Chatwoot — necesita escribirle una vez al número del negocio "
+                        "para poder recibir avisos automáticos.")
         return
 
     mensaje = f"se cargó en la planilla este número: {telefono}"
@@ -2335,36 +2346,9 @@ async def notify_seguimiento_sheets(campos: dict, telefono: str) -> None:
         mensaje += f" (el número a portar es distinto: {a_portar})"
 
     try:
-        await send_message(seguimiento_conv_id, mensaje)
+        await send_message(conv_id, mensaje)
     except Exception as e:
-        logger.error(f"No se pudo notificar la derivación en el canal de seguimiento: {e}")
-
-
-async def handle_seguimiento_message(seguimiento_conversation_id: int, texto: str) -> None:
-    """Maneja un mensaje entrante en el inbox de seguimiento. NO corre Valentina ni el LLM —
-    solo busca el patrón "contactado <numero de conversación>" y marca esa conversación."""
-    match = re.search(r"contactad[oa]\s*#?\s*(\d+)", texto or "", re.IGNORECASE)
-    if not match:
-        try:
-            await send_message(
-                seguimiento_conversation_id,
-                "no entendí ese mensaje. para marcar una derivación como contactada, escribí: "
-                "contactado <número de conversación>",
-            )
-        except Exception as e:
-            logger.error(f"Error respondiendo en el canal de seguimiento: {e}")
-        return
-
-    conv_id = int(match.group(1))
-    try:
-        await add_conversation_label(conv_id, CONTACTADO_LABEL)
-        await send_message(seguimiento_conversation_id, f"listo, marcado como contactado: conversación #{conv_id} ✅")
-    except Exception as e:
-        logger.error(f"Error marcando como contactado la conversación {conv_id}: {e}")
-        try:
-            await send_message(seguimiento_conversation_id, f"hubo un error marcando la conversación #{conv_id}, probá de nuevo")
-        except Exception:
-            pass
+        logger.error(f"No se pudo avisarle a Camila sobre la carga en Sheets: {e}")
 
 
 # --------------------------------------------------------------------------------------
@@ -2978,7 +2962,7 @@ async def process_conversation(conversation_id: int) -> None:
             campos = _parse_ficha_fields(ficha)
             telefono = await _get_contact_phone(conversation_id)
             await log_to_google_sheets(campos, telefono)
-            await notify_seguimiento_sheets(campos, telefono)
+            await notify_camila_carga_sheets(campos, telefono)
 
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
@@ -3028,14 +3012,6 @@ async def webhook(request: Request):
     attachments = payload.get("attachments") or []
     logger.info(f"Mensaje recibido: conversación={conversation_id} mensaje={message_id} "
                 f"adjuntos={len(attachments)}")
-
-    # Canal de seguimiento (inbox aparte, opcional): NUNCA corre Valentina/el LLM acá, es un
-    # flujo de código separado que solo entiende "contactado <numero>". Se resuelve ya mismo,
-    # sin pasar por el debounce ni por la pausa manual (son cosas del flujo de ventas).
-    inbox_id = conversation.get("inbox_id") or (payload.get("inbox") or {}).get("id")
-    if SEGUIMIENTO_INBOX_ID and str(inbox_id) == str(SEGUIMIENTO_INBOX_ID):
-        await handle_seguimiento_message(conversation_id, payload.get("content") or "")
-        return {"status": "ok", "channel": "seguimiento"}
 
     # Pausa manual: si tiene la etiqueta PAUSE_LABEL, no responder (humano atendiendo). Se
     # vuelve a chequear justo antes de responder, por si se pausa mientras se espera el debounce.
