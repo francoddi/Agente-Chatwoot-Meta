@@ -2628,35 +2628,72 @@ async def _get_sheets_access_token():
     return creds.token
 
 
-async def append_google_sheets_row(row: list) -> None:
-    """Agrega una fila al final de la hoja configurada."""
+async def append_google_sheets_row(row: list, intentos: int = 3) -> bool:
+    """Agrega una fila al final de la hoja configurada. Reintenta ante errores de red/timeout
+    (no ante un token inválido, eso no se arregla reintentando). Devuelve True si se agregó,
+    False si se agotaron los reintentos — en ese caso, se le avisa al dueño para que no se
+    pierda la venta en silencio."""
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
-        return
+        return False
 
     token = await _get_sheets_access_token()
     if not token:
         logger.error("No se pudo obtener un token de Google Sheets; no se agregó la fila.")
-        return
+        await _avisar_error_sheets(row)
+        return False
 
     encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:A", safe="")
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
         f"/values/{encoded_range}:append"
     )
+
+    for intento in range(1, intentos + 1):
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"},
+                    json={"values": [row]},
+                )
+                if resp.status_code >= 400:
+                    logger.error(f"Google Sheets devolvió error {resp.status_code} "
+                                  f"(intento {intento}/{intentos}): {resp.text[:1000]}")
+                    resp.raise_for_status()
+            logger.info("Fila agregada a Google Sheets.")
+            return True
+        except Exception as e:
+            logger.error(f"No se pudo agregar la fila a Google Sheets (intento {intento}/{intentos}): {e}")
+            if intento < intentos:
+                await asyncio.sleep(2 * intento)  # 2s, 4s
+
+    logger.error("Se agotaron los reintentos, la fila NO se pudo cargar en Sheets.")
+    await _avisar_error_sheets(row)
+    return False
+
+
+async def _avisar_error_sheets(row: list) -> None:
+    """Le avisa al dueño por WhatsApp que una fila NO se pudo cargar en Sheets, para que no se
+    pierda en silencio y se pueda cargar a mano. No hace falta que el dueño tenga conversación
+    activa para que esto se intente — si no la tiene, queda solo el log de error."""
+    if not NUMERO_DUENO:
+        return
+    nombre = row[4] if len(row) > 4 else "(sin nombre)"
+    numero = row[16] if len(row) > 16 else "(sin número)"
+    mensaje = (
+        f"⚠️ No se pudo cargar en la planilla una venta:\n"
+        f"Nombre: {nombre}\n"
+        f"Número a portar: {numero}\n"
+        f"Cargala a mano, hubo un error de conexión con Sheets."
+    )
+    conv_id = await _find_conversation_by_phone(NUMERO_DUENO)
+    if not conv_id:
+        return
     try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-                params={"valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS"},
-                json={"values": [row]},
-            )
-            if resp.status_code >= 400:
-                logger.error(f"Google Sheets devolvió error {resp.status_code}: {resp.text[:1000]}")
-                resp.raise_for_status()
-        logger.info("Fila agregada a Google Sheets.")
+        await send_message(conv_id, mensaje)
     except Exception as e:
-        logger.error(f"No se pudo agregar la fila a Google Sheets: {e}")
+        logger.error(f"No se pudo avisar del error de Sheets: {e}")
 
 
 def _parse_ficha_fields(ficha: str) -> dict:
