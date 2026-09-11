@@ -2457,17 +2457,18 @@ async def _get_contact_phone(conversation_id) -> str:
 async def log_to_google_sheets(campos: dict, telefono: str) -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (confirmado contra el
-    encabezado real, incluye la columna "Estado" al principio que no estaba en la lista
-    original):
+    encabezado real; incluye "Estado" al principio y "Vendedora" después, que no estaban en
+    la lista original):
 
-    Estado | Fecha portación | Fecha de venta | Nombre y apellido | DNI | F. nac | Email |
-    Empresa donante | Segmento | Provincia | Localidad | Direcc entrega | Altura | Piso/depto |
-    CP | Número a portar | Número de contacto | Plan | [Num seguimiento correo | PIN |
-    Observaciones | Observaciones — estas últimas 4 no se escriben, ver abajo]
+    Estado | Vendedora | Fecha portación | Fecha de venta | Nombre y apellido | DNI | F. nac |
+    Email | Empresa donante | Segmento | Provincia | Localidad | Direcc entrega | Altura |
+    Piso/depto | CP | Número a portar | Número de contacto | Plan | [Num seguimiento correo |
+    PIN | Observaciones | Observaciones — estas últimas 4 no se escriben, ver abajo]
 
-    Estado, DNI, F. nac, Altura y Piso/depto quedan vacíos a propósito (no son datos que pida
-    Valentina); Fecha portación también queda vacía (la completa el equipo cuando se hace el
-    cambio real). "Segmento" se completa con Tipo de cliente (Consumidor final / Empresa).
+    Estado, Vendedora, DNI, F. nac, Altura y Piso/depto quedan vacíos a propósito (no son datos
+    que pida Valentina); Fecha portación también queda vacía (la completa el equipo cuando se
+    hace el cambio real). "Segmento" se completa con Tipo de cliente (Consumidor final /
+    Empresa).
 
     Las columnas posteriores a "Plan" (Num seguimiento correo, PIN, Observaciones x2) no se
     incluyen en absoluto en la fila: al agregar una fila nueva esas celdas quedan intactas
@@ -2480,6 +2481,7 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
 
     row = [
         "",  # Estado (lo completa el equipo)
+        "",  # Vendedora (la completa el equipo)
         "",  # Fecha portación (la completa el equipo)
         fecha_venta,
         campos.get("Nombre", ""),
