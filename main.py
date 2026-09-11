@@ -20,8 +20,10 @@ import logging
 import os
 import random
 import re
+from datetime import date
 from datetime import datetime
 from datetime import time as dtime
+from datetime import timedelta
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -2278,6 +2280,13 @@ FOLLOWUP_DELAY_MIN_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MIN_SECONDS", "2700
 FOLLOWUP_DELAY_MAX_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MAX_SECONDS", "3600"))  # 60 min
 FOLLOWUP_CLOSE_MARKER = "[FIN_SEGUIMIENTO]"
 
+# Resumen diario (opcional): a la hora configurada (huso Argentina), le manda al número del
+# dueño un WhatsApp con cuántos leads llegaron ese día, cuántos se derivaron y el % de
+# conversión. Vacío NUMERO_DUENO = deshabilitado. Mismo requisito que con Camila: ese número
+# tiene que haberle escrito antes al número del negocio para poder recibir mensajes.
+NUMERO_DUENO = os.getenv("NUMERO_DUENO", "")
+RESUMEN_DIARIO_HORA = os.getenv("RESUMEN_DIARIO_HORA", "00:00")  # HH:MM, huso Argentina
+
 HTTP_TIMEOUT = 60  # segundos, para TODAS las llamadas HTTP
 
 logging.basicConfig(
@@ -2287,6 +2296,13 @@ logging.basicConfig(
 logger = logging.getLogger("agente-chatwoot")
 
 app = FastAPI(title=f"{BOT_NAME} - Agente Chatwoot")
+
+
+@app.on_event("startup")
+async def _iniciar_resumen_diario():
+    """Arranca el loop del resumen diario en background al levantar la app (no bloquea el
+    arranque del server; si NUMERO_DUENO está vacío, el loop no hace nada)."""
+    asyncio.create_task(_resumen_diario_loop())
 
 
 def _chatwoot_base(conversation_id) -> str:
@@ -2353,11 +2369,12 @@ def _mismo_telefono(a: str, b: str) -> bool:
     return da[-10:] == db[-10:]
 
 
-async def _find_camila_conversation_id():
-    """Busca la conversación más reciente con el contacto de Camila (NUMERO_CAMILA), para
-    poder mandarle un mensaje como a cualquier cliente. Devuelve None si todavía no existe
-    (necesita habernos escrito ella primero para abrir la ventana de WhatsApp)."""
-    telefono = _digits_only(NUMERO_CAMILA)
+async def _find_conversation_by_phone(numero: str):
+    """Busca la conversación más reciente con el contacto de ese número, para poder mandarle
+    un mensaje como a cualquier cliente (sirve tanto para Camila como para el dueño). Devuelve
+    None si todavía no existe (necesita habernos escrito primero para abrir la ventana de
+    WhatsApp)."""
+    telefono = _digits_only(numero)
     if not telefono:
         return None
 
@@ -2368,7 +2385,7 @@ async def _find_camila_conversation_id():
             resp.raise_for_status()
             contacts = resp.json().get("payload", []) or []
     except Exception as e:
-        logger.error(f"No se pudo buscar el contacto de Camila en Chatwoot: {e}")
+        logger.error(f"No se pudo buscar el contacto {numero} en Chatwoot: {e}")
         return None
     if not contacts:
         return None
@@ -2381,12 +2398,16 @@ async def _find_camila_conversation_id():
             resp.raise_for_status()
             convs = resp.json().get("payload", []) or []
     except Exception as e:
-        logger.error(f"No se pudieron obtener las conversaciones de Camila: {e}")
+        logger.error(f"No se pudieron obtener las conversaciones de {numero}: {e}")
         return None
     if not convs:
         return None
     convs = sorted(convs, key=lambda c: c.get("last_activity_at") or 0, reverse=True)
     return convs[0].get("id")
+
+
+async def _find_camila_conversation_id():
+    return await _find_conversation_by_phone(NUMERO_CAMILA)
 
 
 async def notify_camila_carga_sheets(campos: dict, telefono: str) -> None:
@@ -2419,6 +2440,148 @@ async def notify_camila_carga_sheets(campos: dict, telefono: str) -> None:
         await send_message(conv_id, mensaje)
     except Exception as e:
         logger.error(f"No se pudo avisarle a Camila sobre la carga en Sheets: {e}")
+
+
+# --------------------------------------------------------------------------------------
+# Resumen diario (opcional): a la hora configurada le manda al dueño (NUMERO_DUENO) un
+# WhatsApp con cuántos leads llegaron ese día, cuántos se derivaron y el % de conversión.
+# --------------------------------------------------------------------------------------
+async def _fetch_all_conversations() -> list:
+    """Trae TODAS las conversaciones de la cuenta (recorre todas las páginas)."""
+    conversaciones = []
+    page = 1
+    while True:
+        url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.get(url, headers=_chatwoot_headers(),
+                                         params={"status": "all", "page": page})
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as e:
+            logger.error(f"No se pudieron traer conversaciones (página {page}) para el resumen diario: {e}")
+            break
+        payload = data.get("data", {}).get("payload", []) or data.get("payload", []) or []
+        if not payload:
+            break
+        conversaciones.extend(payload)
+        page += 1
+        if page > 50:  # límite de seguridad, no debería hacer falta en la práctica
+            break
+    return conversaciones
+
+
+async def _contar_leads_del_dia(fecha: date) -> tuple:
+    """Cuenta cuántos leads (conversaciones nuevas, excluyendo a Camila y al dueño) entraron
+    el día dado (huso Argentina), y cuántos de esos ya están derivados (etiqueta ddd).
+    Devuelve (recibidos, derivados)."""
+    inicio = datetime.combine(fecha, dtime.min, tzinfo=CAMILA_TIMEZONE).timestamp()
+    fin = datetime.combine(fecha, dtime.max, tzinfo=CAMILA_TIMEZONE).timestamp()
+    excluir = {t for t in (_digits_only(NUMERO_CAMILA), _digits_only(NUMERO_DUENO)) if t}
+
+    todas = await _fetch_all_conversations()
+    del_dia = []
+    for c in todas:
+        creado = c.get("created_at")
+        if creado is None or not (inicio <= creado <= fin):
+            continue
+        phone = _digits_only((c.get("meta", {}).get("sender", {}) or {}).get("phone_number", ""))
+        if phone and phone[-10:] in {t[-10:] for t in excluir}:
+            continue
+        del_dia.append(c)
+
+    ids_del_dia = {c.get("id") for c in del_dia}
+
+    derivadas = await _fetch_all_conversations_by_label(DERIVADO_LABEL)
+    derivadas_del_dia = sum(1 for c in derivadas if c.get("id") in ids_del_dia)
+
+    return len(del_dia), derivadas_del_dia
+
+
+async def _fetch_all_conversations_by_label(label: str) -> list:
+    """Trae todas las conversaciones que tienen una etiqueta específica (recorre páginas)."""
+    conversaciones = []
+    page = 1
+    while True:
+        url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.get(url, headers=_chatwoot_headers(),
+                                         params={"labels[]": label, "status": "all", "page": page})
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as e:
+            logger.error(f"No se pudieron traer conversaciones con etiqueta '{label}' para el resumen diario: {e}")
+            break
+        payload = data.get("data", {}).get("payload", []) or data.get("payload", []) or []
+        if not payload:
+            break
+        conversaciones.extend(payload)
+        page += 1
+        if page > 50:
+            break
+    return conversaciones
+
+
+async def enviar_resumen_diario(fecha: date) -> None:
+    """Calcula el resumen del día dado y se lo manda al dueño por WhatsApp."""
+    if not NUMERO_DUENO:
+        return
+
+    try:
+        recibidos, derivados = await _contar_leads_del_dia(fecha)
+    except Exception as e:
+        logger.error(f"No se pudo calcular el resumen diario del {fecha}: {e}")
+        return
+
+    conversion = round((derivados / recibidos * 100), 1) if recibidos else 0.0
+    mensaje = (
+        f"📊 Resumen del {fecha.strftime('%d/%m/%Y')}\n\n"
+        f"Leads recibidos: {recibidos}\n"
+        f"Leads delegados: {derivados}\n"
+        f"Conversión: {conversion}%"
+    )
+
+    conv_id = await _find_conversation_by_phone(NUMERO_DUENO)
+    if not conv_id:
+        logger.warning("Hay que mandar el resumen diario pero el número del dueño todavía no "
+                        "tiene conversación activa en Chatwoot — necesita escribirle una vez "
+                        "al número del negocio para poder recibir avisos automáticos.")
+        return
+
+    try:
+        await send_message(conv_id, mensaje)
+    except Exception as e:
+        logger.error(f"No se pudo mandar el resumen diario: {e}")
+
+
+async def _resumen_diario_loop() -> None:
+    """Corre en background mientras viva la app: espera hasta la hora configurada
+    (RESUMEN_DIARIO_HORA, huso Argentina) y manda el resumen del día que acaba de terminar.
+    Se repite todos los días. Si NUMERO_DUENO está vacío, no hace nada."""
+    if not NUMERO_DUENO:
+        return
+    try:
+        hh, mm = (int(x) for x in RESUMEN_DIARIO_HORA.split(":"))
+    except Exception:
+        logger.error(f"RESUMEN_DIARIO_HORA inválido ({RESUMEN_DIARIO_HORA!r}), se esperaba HH:MM. "
+                      f"El resumen diario queda deshabilitado.")
+        return
+
+    while True:
+        ahora = datetime.now(CAMILA_TIMEZONE)
+        objetivo = ahora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if objetivo <= ahora:
+            objetivo += timedelta(days=1)
+        await asyncio.sleep((objetivo - ahora).total_seconds())
+
+        # El día que se resume es el que acaba de terminar justo antes de "objetivo" (con
+        # RESUMEN_DIARIO_HORA=00:00 esto es "ayer"; con cualquier otra hora, sigue siendo "hoy").
+        fecha_resumen = (objetivo - timedelta(seconds=1)).date()
+        try:
+            await enviar_resumen_diario(fecha_resumen)
+        except Exception as e:
+            logger.error(f"Error en el loop del resumen diario: {e}")
 
 
 # --------------------------------------------------------------------------------------
