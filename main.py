@@ -2403,10 +2403,17 @@ async def notify_camila_carga_sheets(campos: dict, telefono: str) -> None:
                         "para poder recibir avisos automáticos.")
         return
 
-    mensaje = f"se cargó en la planilla este número: {telefono}"
-    a_portar = campos.get("Número a portar", "")
-    if a_portar and not _mismo_telefono(a_portar, telefono):
-        mensaje += f" (el número a portar es distinto: {a_portar})"
+    numeros_portar = _split_numeros_a_portar(campos.get("Número a portar", ""))
+    if len(numeros_portar) > 1:
+        # Más de una línea -> se cargó una fila por cada una, se listan todas.
+        mensaje = (
+            f"se cargaron en la planilla {len(numeros_portar)} líneas para este número: "
+            f"{telefono}\nnúmeros a portar: {', '.join(numeros_portar)}"
+        )
+    else:
+        mensaje = f"se cargó en la planilla este número: {telefono}"
+        if numeros_portar and not _mismo_telefono(numeros_portar[0], telefono):
+            mensaje += f" (el número a portar es distinto: {numeros_portar[0]})"
 
     try:
         await send_message(conv_id, mensaje)
@@ -2517,6 +2524,15 @@ async def _get_contact_phone(conversation_id) -> str:
         return ""
 
 
+def _split_numeros_a_portar(texto: str) -> list:
+    """El cliente a veces porta más de una línea (ej: "3513031543 y 3543533658"). Devuelve la
+    lista de números individuales encontrados en el texto, sea cual sea el separador que haya
+    usado el modelo (y, coma, /, &, etc.) — busca corridas de dígitos de 6 o más."""
+    numeros = re.findall(r"\d[\d\s\-]{5,}\d", texto or "")
+    limpios = [re.sub(r"\D", "", n) for n in numeros]
+    return [n for n in limpios if n]
+
+
 async def log_to_google_sheets(campos: dict, telefono: str) -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (confirmado contra el
@@ -2536,35 +2552,41 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
     Las columnas posteriores a "Plan" (Num seguimiento correo, PIN, Observaciones x2) no se
     incluyen en absoluto en la fila: al agregar una fila nueva esas celdas quedan intactas
     (vacías), a pedido explícito — el bot no completa nada ahí.
+
+    Si el cliente porta más de una línea, se agrega UNA FILA POR CADA NÚMERO (con el resto de
+    los datos repetido igual en cada una) — a pedido explícito, cada línea tiene que quedar
+    anotada por separado en el tracking aunque los demás datos se repitan.
     """
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
         return
 
     fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y")
+    numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) or [""]
 
-    row = [
-        "",  # Estado (lo completa el equipo)
-        "",  # Vendedora (la completa el equipo)
-        "",  # Fecha portación (la completa el equipo)
-        fecha_venta,
-        campos.get("Nombre", ""),
-        "",  # DNI (lo pide Camila)
-        "",  # F. nac
-        campos.get("Email", ""),
-        campos.get("Compañía actual", ""),
-        campos.get("Tipo de cliente", ""),  # Segmento
-        campos.get("Provincia", ""),
-        campos.get("Localidad", ""),
-        campos.get("Dirección", ""),
-        "",  # Altura
-        "",  # Piso/depto
-        campos.get("Código postal", ""),
-        campos.get("Número a portar", ""),
-        telefono,
-        campos.get("Plan elegido", ""),
-        # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
-    ]
-    await append_google_sheets_row(row)
+    for numero in numeros:
+        row = [
+            "",  # Estado (lo completa el equipo)
+            "",  # Vendedora (la completa el equipo)
+            "",  # Fecha portación (la completa el equipo)
+            fecha_venta,
+            campos.get("Nombre", ""),
+            "",  # DNI (lo pide Camila)
+            "",  # F. nac
+            campos.get("Email", ""),
+            campos.get("Compañía actual", ""),
+            campos.get("Tipo de cliente", ""),  # Segmento
+            campos.get("Provincia", ""),
+            campos.get("Localidad", ""),
+            campos.get("Dirección", ""),
+            "",  # Altura
+            "",  # Piso/depto
+            campos.get("Código postal", ""),
+            numero,
+            telefono,
+            campos.get("Plan elegido", ""),
+            # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
+        ]
+        await append_google_sheets_row(row)
 
 
 def _map_history(messages: list) -> list:
