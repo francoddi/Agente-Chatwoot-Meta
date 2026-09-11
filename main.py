@@ -2302,9 +2302,23 @@ async def _get_seguimiento_conversation_id():
     return payload[0].get("id")
 
 
-async def notify_seguimiento(conversation_id: int, ficha: str) -> None:
-    """Avisa en el canal de seguimiento que se derivó una conversación a Camila, mandando
-    SOLO la ficha de datos (sin precio, sin el link de Camila)."""
+def _digits_only(numero: str) -> str:
+    return re.sub(r"\D", "", numero or "")
+
+
+def _mismo_telefono(a: str, b: str) -> bool:
+    """Compara dos números ignorando formato (código de país, el 9 de celular, 0/15, espacios,
+    guiones, etc.): alcanza con que coincidan en los últimos 10 dígitos (area + número local)."""
+    da, db = _digits_only(a), _digits_only(b)
+    if not da or not db:
+        return False
+    return da[-10:] == db[-10:]
+
+
+async def notify_seguimiento_sheets(campos: dict, telefono: str) -> None:
+    """Avisa en el canal de seguimiento que se cargó una fila nueva en la planilla, con el
+    número de contacto del cliente. Si el "número a portar" que dio el cliente es distinto
+    del número de contacto, lo aclara (no suele pasar)."""
     if not SEGUIMIENTO_INBOX_ID:
         return
 
@@ -2315,11 +2329,11 @@ async def notify_seguimiento(conversation_id: int, ficha: str) -> None:
                         "para activarlo.")
         return
 
-    mensaje = (
-        f"🔔 Nueva derivación — conversación #{conversation_id}\n\n"
-        f"{ficha}\n\n"
-        f"Respondé \"contactado {conversation_id}\" cuando Camila ya le haya escrito."
-    )
+    mensaje = f"se cargó en la planilla este número: {telefono}"
+    a_portar = campos.get("Número a portar", "")
+    if a_portar and not _mismo_telefono(a_portar, telefono):
+        mensaje += f" (el número a portar es distinto: {a_portar})"
+
     try:
         await send_message(seguimiento_conv_id, mensaje)
     except Exception as e:
@@ -2456,7 +2470,7 @@ async def _get_contact_phone(conversation_id) -> str:
         return ""
 
 
-async def log_to_google_sheets(conversation_id: int, ficha: str) -> None:
+async def log_to_google_sheets(campos: dict, telefono: str) -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (confirmado contra el
     encabezado real, incluye la columna "Estado" al principio que no estaba en la lista
@@ -2478,8 +2492,6 @@ async def log_to_google_sheets(conversation_id: int, ficha: str) -> None:
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
         return
 
-    campos = _parse_ficha_fields(ficha)
-    telefono = await _get_contact_phone(conversation_id)
     fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y %H:%M")
 
     row = [
@@ -2957,14 +2969,16 @@ async def process_conversation(conversation_id: int) -> None:
 
     # Si el mensaje incluye el link de Camila, es matemáticamente el handoff (ese link solo
     # aparece en el prompt en ese momento) -> se le agrega la etiqueta sola, sin depender del
-    # criterio del modelo, se avisa en el canal de seguimiento y se registra en Google Sheets
-    # (en los tres casos, solo la ficha, sin precio).
+    # criterio del modelo, se registra la fila en Google Sheets y se avisa en el canal de
+    # seguimiento con solo el número de contacto (sin la ficha completa).
     if NUMERO_CAMILA in reply:
         await add_conversation_label(conversation_id, DERIVADO_LABEL)
         ficha = next((b for b in bubbles if "Hola Camila" in b), None)
         if ficha:
-            await notify_seguimiento(conversation_id, ficha)
-            await log_to_google_sheets(conversation_id, ficha)
+            campos = _parse_ficha_fields(ficha)
+            telefono = await _get_contact_phone(conversation_id)
+            await log_to_google_sheets(campos, telefono)
+            await notify_seguimiento_sheets(campos, telefono)
 
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
