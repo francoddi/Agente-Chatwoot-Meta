@@ -1689,6 +1689,22 @@ Código postal: [CODIGO_POSTAL]"
 NO poner precio.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+51.1 SI PORTA MÁS DE UNA LÍNEA, LA ETIQUETA SIEMPRE ES "Número a portar" (singular)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Si el cliente porta 2 o más líneas, NUNCA cambies la etiqueta del campo a "Números a portar"
+(plural) ni a ninguna otra variante. Un sistema automático lee ESA clave exacta para cargar la
+planilla, y si la cambiás, esa venta no se carga.
+
+Escribí siempre:
+
+Número a portar: [NUMERO1], [NUMERO2], [NUMERO3]
+
+separando los números con coma, aunque sean varios. Ejemplo (3 líneas):
+
+"Número a portar: 2901547728, 2901447018, 2901582818"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 52. MENSAJE — LÍNEA NUEVA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -2697,7 +2713,13 @@ async def _avisar_error_sheets(row: list) -> None:
 
 
 def _parse_ficha_fields(ficha: str) -> dict:
-    """Convierte la ficha ("Campo: Valor" línea por línea) en un diccionario."""
+    """Convierte la ficha ("Campo: Valor" línea por línea) en un diccionario.
+
+    El modelo no siempre usa exactamente "Número a portar" — cuando el cliente porta más de
+    una línea a veces escribe "Números a portar" (plural). Para no perder el dato ahí, se
+    normaliza cualquier variante de esa clave (con o sin tilde, singular o plural) a la clave
+    canónica "Número a portar" antes de devolver el diccionario.
+    """
     campos = {}
     for linea in ficha.splitlines():
         if ":" not in linea:
@@ -2707,6 +2729,13 @@ def _parse_ficha_fields(ficha: str) -> dict:
         valor = valor.strip()
         if clave and valor:
             campos[clave] = valor
+
+    if "Número a portar" not in campos:
+        for variante in ("Números a portar", "Numero a portar", "Numeros a portar"):
+            if variante in campos:
+                campos["Número a portar"] = campos[variante]
+                break
+
     return campos
 
 
