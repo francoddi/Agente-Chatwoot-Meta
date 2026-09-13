@@ -2794,6 +2794,11 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
     fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y")
     numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) or [""]
 
+    # "Línea nueva" no tiene compañía de origen ni número a portar (no hay línea previa que
+    # traer) — esas celdas quedan vacías a propósito, pero así se ven igual que un dato
+    # perdido. Se marcan explícitamente para que quede claro que es intencional.
+    es_linea_nueva = "nueva" in campos.get("Tipo de portabilidad", "").lower()
+
     for numero in numeros:
         row = [
             "",  # Estado (lo completa el equipo)
@@ -2804,7 +2809,7 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
             "",  # DNI (lo pide Camila)
             "",  # F. nac
             campos.get("Email", ""),
-            campos.get("Compañía actual", ""),
+            campos.get("Compañía actual", "") or ("LÍNEA NUEVA" if es_linea_nueva else ""),
             campos.get("Tipo de cliente", ""),  # Segmento
             campos.get("Provincia", ""),
             campos.get("Localidad", ""),
@@ -2812,7 +2817,7 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
             "",  # Altura
             "",  # Piso/depto
             campos.get("Código postal", ""),
-            numero,
+            numero or ("LÍNEA NUEVA" if es_linea_nueva else ""),
             telefono,
             campos.get("Plan elegido", ""),
             # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
