@@ -2429,8 +2429,15 @@ async def _find_camila_conversation_id():
 async def notify_camila_carga_sheets(campos: dict, telefono: str) -> None:
     """Le avisa a Camila por WhatsApp que se cargó una fila nueva en la planilla, con el
     número de contacto del cliente. Si el "número a portar" que dio el cliente es distinto
-    del número de contacto, lo aclara (no suele pasar)."""
+    del número de contacto, lo aclara (no suele pasar).
+
+    Los domingos NO se le manda este aviso (a pedido explícito, para no molestarla ese día) —
+    esto no afecta nada más: la etiqueta, el registro en Sheets y el resto del flujo con el
+    cliente siguen funcionando igual, solo se salta este mensaje puntual.
+    """
     if not NUMERO_CAMILA:
+        return
+    if datetime.now(CAMILA_TIMEZONE).weekday() == 6:  # 6 = domingo
         return
 
     conv_id = await _find_camila_conversation_id()
