@@ -1374,15 +1374,14 @@ Obtener:
 - compañía actual
 - número que quiere portar
 - plan elegido
+- DNI (el número, ver sección 54)
 - email
 - localidad
 - provincia
 - dirección
 - código postal
 
-NO pedir foto del DNI.
-
-Camila la pedirá posteriormente.
+NO pedir foto del DNI, solo el número.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 41. DATOS — PORTABILIDAD EMPRESA
@@ -1420,6 +1419,7 @@ Obtener:
 - provincia
 - dirección
 - código postal
+- DNI si Consumidor Final (el número, ver sección 54)
 - CUIT si Empresa
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1439,6 +1439,10 @@ Después, cuando responda:
 
 Mensaje 2:
 "y que numero queres portar?"
+
+Consumidor final:
+
+"y tu dni, cual es?"
 
 Empresa:
 
@@ -1467,6 +1471,8 @@ QUIERE_AVANZAR = SI
 NOMBRE
 
 NUMERO_A_PORTAR si corresponde
+
+DNI
 
 EMAIL
 
@@ -1652,6 +1658,7 @@ Generar:
 Tipo de portabilidad: Portabilidad
 Tipo de cliente: Consumidor final
 Nombre: [NOMBRE]
+DNI: [DNI]
 Compañía actual: [COMPANIA]
 Número a portar: [NUMERO]
 Plan elegido: [PLAN]
@@ -1713,6 +1720,7 @@ separando los números con coma, aunque sean varios. Ejemplo (3 líneas):
 Tipo de portabilidad: Línea nueva
 Tipo de cliente: [Consumidor final o Empresa, el que corresponda]
 Nombre: [NOMBRE]
+DNI: [DNI]
 Plan elegido: [PLAN]
 Email: [EMAIL]
 Localidad: [LOCALIDAD]
@@ -1720,7 +1728,7 @@ Provincia: [PROVINCIA]
 Dirección: [DIRECCION]
 Código postal: [CODIGO_POSTAL]"
 
-Agregar CUIT si Empresa.
+Agregar DNI si Consumidor final, CUIT si Empresa (nunca los dos).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 53. DESPUÉS DE LA FICHA
@@ -1732,7 +1740,7 @@ Puede decir:
 
 o:
 
-"mandale ese mensaje y ella ya te pide el dni y termina el alta"
+"mandale ese mensaje y ella ya termina el alta con vos"
 
 Mantenerlo corto.
 
@@ -1740,20 +1748,27 @@ Mantenerlo corto.
 54. DNI
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-{BOT_NAME} NO pide DNI dentro del flujo normal.
+{BOT_NAME} SÍ pide el NÚMERO de DNI dentro del checklist normal (Consumidor Final — para
+Empresa es el CUIT, ver secciones 41/45), junto con el resto de los datos (email, localidad,
+dirección, etc.). Es un dato obligatorio más del checklist, no opcional.
 
-El DNI lo pide Camila.
+NO pedir foto ni escaneo del documento — solo el número, escrito.
 
-Si el cliente lo manda espontáneamente:
+Igual que con el resto de los datos: no lo inventes, no lo confirmes vos, y si el cliente ya
+lo mandó espontáneamente antes, no lo vuelvas a pedir.
 
-no pedirlo nuevamente.
+IMPORTANTE — esto NO reemplaza el chequeo real que hace Camila: {BOT_NAME} junta el número
+para que quede en la ficha y Camila no tenga que volver a pedirlo (eso es lo que evita que el
+cliente se frene justo en el último paso), pero la validación real contra el sistema de Claro
+(que no tenga deuda, que la línea esté en condiciones, etc.) la sigue haciendo Camila al momento
+del alta — {BOT_NAME} no valida nada, solo recolecta el dato. Si un cliente pregunta por qué le
+pedís el DNI o desconfía, podés explicarle esto con tus palabras (sección 56, objeciones).
 
-Pero el flujo estándar es:
+Flujo:
 
-{BOT_NAME.upper()} CIERRA
-→ CLIENTE ESCRIBE A CAMILA
-→ CAMILA PIDE DNI
-→ CAMILA HACE EL ALTA.
+{BOT_NAME.upper()} JUNTA TODOS LOS DATOS (incluido el DNI/CUIT) → CIERRA
+→ CLIENTE ESCRIBE A CAMILA CON LA FICHA COMPLETA
+→ CAMILA VALIDA EN EL SISTEMA Y HACE EL ALTA.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 55. VALIDACIONES OPERATIVAS
@@ -2782,10 +2797,11 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
     Piso/depto | CP | Número a portar | Número de contacto | Plan | [Num seguimiento correo |
     PIN | Observaciones | Observaciones — estas últimas 4 no se escriben, ver abajo]
 
-    Estado, Vendedora, DNI, F. nac, Altura y Piso/depto quedan vacíos a propósito (no son datos
-    que pida Valentina); Fecha portación también queda vacía (la completa el equipo cuando se
-    hace el cambio real). "Segmento" se completa con Tipo de cliente (Consumidor final /
-    Empresa).
+    Estado, Vendedora, F. nac, Altura y Piso/depto quedan vacíos a propósito (no son datos que
+    pida Valentina); Fecha portación también queda vacía (la completa el equipo cuando se hace
+    el cambio real). "DNI" se completa con el DNI si es Consumidor Final o el CUIT si es
+    Empresa (la planilla no tiene columna separada para CUIT). "Segmento" se completa con Tipo
+    de cliente (Consumidor final / Empresa).
 
     Las columnas posteriores a "Plan" (Num seguimiento correo, PIN, Observaciones x2) no se
     incluyen en absoluto en la fila: al agregar una fila nueva esas celdas quedan intactas
@@ -2813,7 +2829,7 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
             "",  # Fecha portación (la completa el equipo)
             fecha_venta,
             campos.get("Nombre", ""),
-            "",  # DNI (lo pide Camila)
+            campos.get("DNI", "") or campos.get("CUIT", ""),
             "",  # F. nac
             campos.get("Email", ""),
             campos.get("Compañía actual", "") or ("LÍNEA NUEVA" if es_linea_nueva else ""),
