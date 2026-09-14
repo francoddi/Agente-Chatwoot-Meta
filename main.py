@@ -3247,6 +3247,16 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
             break
 
 
+async def _registrar_derivacion_completa(conversation_id: int, campos: dict) -> None:
+    """Etiqueta la conversación, registra en Sheets y avisa a Camila. Se llama SIEMPRE
+    protegida con asyncio.shield desde process_conversation (ver ahí el porqué) para que una
+    cancelación de la tarea que la llama no la corte a mitad de camino."""
+    await add_conversation_label(conversation_id, DERIVADO_LABEL)
+    telefono = await _get_contact_phone(conversation_id)
+    await log_to_google_sheets(campos, telefono)
+    await notify_camila_carga_sheets(campos, telefono)
+
+
 async def process_conversation(conversation_id: int) -> None:
     """Responde a todos los mensajes entrantes que el cliente mandó desde la última
     respuesta saliente, agrupados en un solo turno del LLM (posiblemente varias burbujas)."""
@@ -3334,10 +3344,20 @@ async def process_conversation(conversation_id: int) -> None:
         ficha = next((b for b in bubbles if "Hola Camila, quiero avanzar" in b), None)
         campos = _parse_ficha_fields(ficha) if ficha else {}
         if ficha and campos.get("Nombre"):
-            await add_conversation_label(conversation_id, DERIVADO_LABEL)
-            telefono = await _get_contact_phone(conversation_id)
-            await log_to_google_sheets(campos, telefono)
-            await notify_camila_carga_sheets(campos, telefono)
+            # asyncio.shield: si llega OTRO mensaje justo en este momento, schedule_conversation_
+            # processing() cancela esta tarea -- sin el shield, esa cancelación puede cortar a
+            # mitad de camino el etiquetado/Sheets/aviso a Camila SIN dejar ningún error en el
+            # log (una cancelación no es una excepción normal). Pasó en un caso real: el cliente
+            # sumó una segunda línea justo después de la primera derivación, y la carga a Sheets
+            # de esa segunda vuelta se perdió en silencio. El shield garantiza que, una vez que
+            # se decidió que hay una derivación real, esto SIEMPRE termine de correr.
+            try:
+                await asyncio.shield(_registrar_derivacion_completa(conversation_id, campos))
+            except asyncio.CancelledError:
+                logger.info(f"Conversación {conversation_id}: la tarea se canceló durante la "
+                            f"derivación (llegó un mensaje nuevo), pero el registro sigue "
+                            f"protegido y va a terminar de todas formas.")
+                raise
         else:
             logger.warning(f"Conversación {conversation_id}: se mandó el link de Camila SIN "
                             f"ficha de datos — revisar, no debería pasar.")
