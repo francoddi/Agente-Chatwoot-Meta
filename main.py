@@ -2289,7 +2289,7 @@ GOOGLE_SHEETS_CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
 GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
 GOOGLE_SHEETS_SHEET_NAME = os.getenv("GOOGLE_SHEETS_SHEET_NAME", "Hoja 1")
 
-MAX_HISTORIAL = int(os.getenv("MAX_HISTORIAL", "20"))
+MAX_HISTORIAL = int(os.getenv("MAX_HISTORIAL", "60"))
 PORT = int(os.getenv("PORT", "8000"))
 
 # Agrupamiento de mensajes ("debounce"): al recibir un mensaje se espera esta cantidad de
@@ -2848,6 +2848,40 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
         await append_google_sheets_row(row)
 
 
+async def _fetch_conversation_messages(conversation_id, minimo: int = None) -> list:
+    """Trae los mensajes de una conversación, paginando hacia atrás si hace falta para juntar
+    al menos `minimo` mensajes. Chatwoot por default solo devuelve los últimos ~20-25 mensajes
+    en un pedido simple — en una conversación larga (varias líneas, muchos datos) eso hacía que
+    el bot literalmente no viera datos que el cliente ya había dado más atrás en la charla y se
+    los volviera a pedir. Devuelve la lista completa juntada, sin ordenar."""
+    if minimo is None:
+        minimo = MAX_HISTORIAL + 15
+    url = f"{_chatwoot_base(conversation_id)}/messages"
+    todos = []
+    before = None
+    for _ in range(8):  # límite de seguridad: hasta ~8 páginas (~160-200 mensajes)
+        params = {"before": before} if before else {}
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.get(url, headers=_chatwoot_headers(), params=params)
+                resp.raise_for_status()
+                pagina = resp.json().get("payload", []) or []
+        except Exception as e:
+            logger.error(f"No se pudieron traer mensajes de la conversación {conversation_id} "
+                          f"(página con before={before}): {e}")
+            break
+        if not pagina:
+            break
+        todos = pagina + todos
+        primer_id = pagina[0].get("id")
+        if before == primer_id:
+            break
+        before = primer_id
+        if len(todos) >= minimo or len(pagina) < 20:
+            break
+    return todos
+
+
 def _map_history(messages: list) -> list:
     """Mapea mensajes de Chatwoot al historial que espera el LLM.
 
@@ -3152,14 +3186,9 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         logger.info(f"Conversación {conversation_id} pausada; se cancela el seguimiento automático.")
         return
 
-    url = f"{_chatwoot_base(conversation_id)}/messages"
-    try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(url, headers=_chatwoot_headers())
-            resp.raise_for_status()
-            all_messages = resp.json().get("payload", []) or []
-    except Exception as e:
-        logger.error(f"No se pudo chequear si corresponde seguimiento en la conversación {conversation_id}: {e}")
+    all_messages = await _fetch_conversation_messages(conversation_id)
+    if not all_messages:
+        logger.error(f"No se pudo chequear si corresponde seguimiento en la conversación {conversation_id}.")
         return
 
     all_messages = sorted(all_messages, key=lambda m: m.get("id") or 0)
@@ -3228,14 +3257,9 @@ async def process_conversation(conversation_id: int) -> None:
                     f"se cancela la respuesta agrupada.")
         return
 
-    url = f"{_chatwoot_base(conversation_id)}/messages"
-    try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(url, headers=_chatwoot_headers())
-            resp.raise_for_status()
-            all_messages = resp.json().get("payload", []) or []
-    except Exception as e:
-        logger.error(f"No se pudo obtener los mensajes de la conversación {conversation_id} para responder: {e}")
+    all_messages = await _fetch_conversation_messages(conversation_id)
+    if not all_messages:
+        logger.error(f"No se pudo obtener los mensajes de la conversación {conversation_id} para responder.")
         return
 
     all_messages = sorted(all_messages, key=lambda m: m.get("id") or 0)
@@ -3303,10 +3327,14 @@ async def process_conversation(conversation_id: int) -> None:
     # las dudas), no se etiqueta ni se registra nada — no es una derivación completa, y
     # etiquetarla como "ddd" ensuciaría el tracking con casos sin datos reales.
     if NUMERO_CAMILA in reply:
-        ficha = next((b for b in bubbles if "Hola Camila" in b), None)
-        if ficha:
+        # OJO: "Hola Camila" solo (sin más) puede aparecer en mensajes de ayuda sueltos (ej:
+        # "escribile 'Hola Camila' para que no se pierda el chat") que NO son la ficha real —
+        # eso generó una fila basura en Sheets una vez. Por eso se exige el arranque exacto de
+        # la plantilla, y además que la ficha tenga campos reales (Nombre) antes de procesarla.
+        ficha = next((b for b in bubbles if "Hola Camila, quiero avanzar" in b), None)
+        campos = _parse_ficha_fields(ficha) if ficha else {}
+        if ficha and campos.get("Nombre"):
             await add_conversation_label(conversation_id, DERIVADO_LABEL)
-            campos = _parse_ficha_fields(ficha)
             telefono = await _get_contact_phone(conversation_id)
             await log_to_google_sheets(campos, telefono)
             await notify_camila_carga_sheets(campos, telefono)
