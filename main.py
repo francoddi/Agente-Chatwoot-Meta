@@ -3427,12 +3427,15 @@ async def process_conversation(conversation_id: int) -> None:
             logger.error(f"Error enviando una burbuja a la conversación {conversation_id}: {e}")
             break
 
-    # Si el mensaje incluye el link de Camila Y la ficha de datos completa, es el handoff real
-    # -> se le agrega la etiqueta, se registra la fila en Google Sheets y se avisa en el canal
-    # de seguimiento. Si el link aparece SIN ficha (el modelo no debería hacer esto, pero por
-    # las dudas), no se etiqueta ni se registra nada — no es una derivación completa, y
-    # etiquetarla como "ddd" ensuciaría el tracking con casos sin datos reales.
-    if NUMERO_CAMILA in reply:
+    # Si el mensaje incluye la ficha de datos (el arranque exacto de la plantilla), es un
+    # handoff real -> se le agrega la etiqueta, se registra la fila en Google Sheets y se avisa
+    # en el canal de seguimiento. Antes se chequeaba "NUMERO_CAMILA in reply" (el link de wa.me)
+    # en vez de la ficha directamente -- eso se rompía cuando el bot corregía y reenviaba la
+    # ficha (ej: se dio cuenta de que faltaba un dato) sin repetir el link, porque el cliente ya
+    # lo tenía: la derivación corregida se perdía en silencio, sin quedar registrada en Sheets
+    # ni avisarle a Camila. Encontrado en vivo con un caso real (ficha reenviada con la fecha de
+    # nacimiento agregada después de mandar la foto del DNI).
+    if "Hola Camila, quiero avanzar" in reply:
         # OJO: "Hola Camila" solo (sin más) puede aparecer en mensajes de ayuda sueltos (ej:
         # "escribile 'Hola Camila' para que no se pierda el chat") que NO son la ficha real —
         # eso generó una fila basura en Sheets una vez. Por eso se exige el arranque exacto de
