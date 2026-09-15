@@ -2786,22 +2786,26 @@ def _split_numeros_a_portar(texto: str) -> list:
     return [n for n in limpios if n]
 
 
-async def log_to_google_sheets(campos: dict, telefono: str) -> None:
+async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
+                                 foto_dni_link: str = "") -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (confirmado contra el
-    encabezado real; incluye "Estado" al principio y "Vendedora" después, que no estaban en
-    la lista original):
+    encabezado real el 15/09/2026, después de que el equipo agregó "Foto DNI" entre "F. nac" y
+    "Email" — si vuelven a insertar/mover columnas a mano, hay que re-confirmar esto contra el
+    encabezado real, porque un desfasaje acá corre todos los datos de columna en silencio):
 
     Estado | Vendedora | Fecha portación | Fecha de venta | Nombre y apellido | DNI | F. nac |
-    Email | Empresa donante | Segmento | Provincia | Localidad | Direcc entrega | Altura |
-    Piso/depto | CP | Número a portar | Número de contacto | Plan | [Num seguimiento correo |
-    PIN | Observaciones | Observaciones — estas últimas 4 no se escriben, ver abajo]
+    Foto DNI | Email | Empresa donante | Segmento | Provincia | Localidad | Direcc entrega |
+    Altura | Piso/depto | CP | Número a portar | Número de contacto | Plan | [Num seguimiento
+    correo | PIN | Observaciones | Observaciones — estas últimas 4 no se escriben, ver abajo]
 
-    Estado, Vendedora, F. nac, Altura y Piso/depto quedan vacíos a propósito (no son datos que
-    pida Valentina); Fecha portación también queda vacía (la completa el equipo cuando se hace
-    el cambio real). "DNI" se completa con el DNI si es Consumidor Final o el CUIT si es
-    Empresa (la planilla no tiene columna separada para CUIT). "Segmento" se completa con Tipo
-    de cliente (Consumidor final / Empresa).
+    Estado, Vendedora, Altura y Piso/depto quedan vacíos a propósito (no son datos que pida
+    Valentina); Fecha portación también queda vacía (la completa el equipo cuando se hace el
+    cambio real). "DNI" se completa con el DNI si es Consumidor Final o el CUIT si es Empresa
+    (la planilla no tiene columna separada para CUIT). "Segmento" se completa con Tipo de
+    cliente (Consumidor final / Empresa). "F. nac" y "Foto DNI" se completan solo si el cliente
+    mandó la foto del documento (ver _extraer_dni_de_fotos): la fecha de nacimiento se lee de
+    la foto (no se le pregunta aparte) y la foto en sí se sube a Drive y se guarda el link.
 
     Las columnas posteriores a "Plan" (Num seguimiento correo, PIN, Observaciones x2) no se
     incluyen en absoluto en la fila: al agregar una fila nueva esas celdas quedan intactas
@@ -2830,7 +2834,8 @@ async def log_to_google_sheets(campos: dict, telefono: str) -> None:
             fecha_venta,
             campos.get("Nombre", ""),
             campos.get("DNI", "") or campos.get("CUIT", ""),
-            "",  # F. nac
+            fecha_nacimiento,  # F. nac (se lee de la foto del DNI, si el cliente la mandó)
+            foto_dni_link,  # Foto DNI (link a Drive, si el cliente la mandó)
             campos.get("Email", ""),
             campos.get("Compañía actual", "") or ("LÍNEA NUEVA" if es_linea_nueva else ""),
             campos.get("Tipo de cliente", ""),  # Segmento
