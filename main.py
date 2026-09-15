@@ -2691,19 +2691,21 @@ async def _get_sheets_access_token():
     return creds.token
 
 
-async def append_google_sheets_row(row: list, intentos: int = 3) -> bool:
+async def append_google_sheets_row(row: list, intentos: int = 3):
     """Agrega una fila al final de la hoja configurada. Reintenta ante errores de red/timeout
-    (no ante un token inválido, eso no se arregla reintentando). Devuelve True si se agregó,
-    False si se agotaron los reintentos — en ese caso, se le avisa al dueño para que no se
-    pierda la venta en silencio."""
+    (no ante un token inválido, eso no se arregla reintentando). Devuelve el "updatedRange" que
+    contestó la API (ej. "'Hoja 1'!A91:T91", de ahí se puede sacar el número de fila real para
+    escribir después en otra columna, ver _escribir_celda) si se agregó, o None si se agotaron
+    los reintentos — en ese caso, se le avisa al dueño para que no se pierda la venta en
+    silencio."""
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
-        return False
+        return None
 
     token = await _get_sheets_access_token()
     if not token:
         logger.error("No se pudo obtener un token de Google Sheets; no se agregó la fila.")
         await _avisar_error_sheets(row)
-        return False
+        return None
 
     encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:A", safe="")
     url = (
@@ -2725,7 +2727,7 @@ async def append_google_sheets_row(row: list, intentos: int = 3) -> bool:
                                   f"(intento {intento}/{intentos}): {resp.text[:1000]}")
                     resp.raise_for_status()
             logger.info("Fila agregada a Google Sheets.")
-            return True
+            return resp.json().get("updates", {}).get("updatedRange")
         except Exception as e:
             logger.error(f"No se pudo agregar la fila a Google Sheets (intento {intento}/{intentos}): {e}")
             if intento < intentos:
@@ -2733,7 +2735,36 @@ async def append_google_sheets_row(row: list, intentos: int = 3) -> bool:
 
     logger.error("Se agotaron los reintentos, la fila NO se pudo cargar en Sheets.")
     await _avisar_error_sheets(row)
-    return False
+    return None
+
+
+async def _escribir_celda(rango_a1: str, valor: str) -> bool:
+    """Escribe UN valor en UNA celda puntual (ej. "Hoja 1!Y91"), sin tocar nada más de la fila.
+    Se usa para completar "Foto DNI dorso" después de agregar la fila principal, en vez de
+    incluirla en esa misma fila — así no hay que mandar valores vacíos para las columnas del
+    equipo (PIN, Observaciones, etc.) que quedarían "tocadas" (string vacío) en vez de
+    realmente en blanco, que no es lo mismo para fórmulas como ISBLANK/COUNTBLANK."""
+    token = await _get_sheets_access_token()
+    if not token:
+        return False
+    encoded_range = quote(rango_a1, safe="")
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
+        f"/values/{encoded_range}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.put(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"valueInputOption": "USER_ENTERED"},
+                json={"values": [[valor]]},
+            )
+            resp.raise_for_status()
+        return True
+    except Exception as e:
+        logger.error(f"No se pudo escribir la celda {rango_a1} en Google Sheets: {e}")
+        return False
 
 
 async def _avisar_error_sheets(row: list) -> None:
@@ -2812,31 +2843,41 @@ def _split_numeros_a_portar(texto: str) -> list:
 
 
 async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
-                                 foto_dni_link: str = "") -> None:
+                                 foto_dni_frente: str = "", foto_dni_dorso: str = "") -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (confirmado contra el
     encabezado real el 15/09/2026, después de que el equipo agregó "Foto DNI" entre "F. nac" y
-    "Email" — si vuelven a insertar/mover columnas a mano, hay que re-confirmar esto contra el
-    encabezado real, porque un desfasaje acá corre todos los datos de columna en silencio):
+    "Email", y "Foto DNI dorso" se agregó como columna Y, al final de todo — si vuelven a
+    insertar/mover columnas a mano, hay que re-confirmar esto contra el encabezado real, porque
+    un desfasaje acá corre todos los datos de columna en silencio):
 
     Estado | Vendedora | Fecha portación | Fecha de venta | Nombre y apellido | DNI | F. nac |
     Foto DNI | Email | Empresa donante | Segmento | Provincia | Localidad | Direcc entrega |
     Altura | Piso/depto | CP | Número a portar | Número de contacto | Plan | [Num seguimiento
-    correo | PIN | Observaciones | Observaciones — estas últimas 4 no se escriben, ver abajo]
+    correo | PIN | Observaciones | Observaciones — estas últimas 4 no se escriben, ver abajo] |
+    Foto DNI dorso (columna Y, se escribe aparte después del append, ver más abajo)
 
     Estado, Vendedora, Altura y Piso/depto quedan vacíos a propósito (no son datos que pida
     Valentina); Fecha portación también queda vacía (la completa el equipo cuando se hace el
     cambio real). "DNI" se completa con el DNI si es Consumidor Final o el CUIT si es Empresa
     (la planilla no tiene columna separada para CUIT). "Segmento" se completa con Tipo de
-    cliente (Consumidor final / Empresa). "F. nac" y "Foto DNI" se completan solo si el cliente
-    mandó la foto del documento (ver _extraer_fotos_dni): la fecha de nacimiento la lee el
-    modelo directo de la foto (no se le pregunta aparte, sección 54) y en "Foto DNI" se guarda
-    el link directo a la foto tal como la sirve Chatwoot (no se sube a ningún lado aparte —
-    Chatwoot ya la guarda de forma permanente, el link no vence).
+    cliente (Consumidor final / Empresa). "F. nac", "Foto DNI" y "Foto DNI dorso" se completan
+    solo si el cliente mandó la foto del documento (ver _extraer_fotos_dni): la fecha de
+    nacimiento la lee el modelo directo de la foto (no se le pregunta aparte, sección 54), y
+    las fotos quedan como fórmula =HYPERLINK(...) con un texto corto clickeable en vez del link
+    entero (que es larguísimo) — apuntan directo a Chatwoot, no se suben a ningún lado aparte,
+    porque Chatwoot ya las guarda de forma permanente (el link no vence).
 
-    Las columnas posteriores a "Plan" (Num seguimiento correo, PIN, Observaciones x2) no se
-    incluyen en absoluto en la fila: al agregar una fila nueva esas celdas quedan intactas
-    (vacías), a pedido explícito — el bot no completa nada ahí.
+    "Foto DNI dorso" (columna Y) se escribe en una llamada APARTE después de agregar la fila
+    principal (no viene en este mismo array "row") — por qué: si "Y" se completa así nomás en
+    el mismo array, hay que rellenar con "" las columnas U-X (Num seguimiento correo, PIN,
+    Observaciones x2, del equipo, que el bot nunca toca) para llegar hasta ahí, y una celda con
+    "" NO es lo mismo que una celda nunca tocada para fórmulas tipo ISBLANK/COUNTBLANK que
+    pueda estar usando el equipo — mejor no arriesgar eso.
+
+    Las columnas U-X (Num seguimiento correo, PIN, Observaciones x2) no se incluyen en absoluto
+    en la fila: al agregar una fila nueva esas celdas quedan intactas (vacías), a pedido
+    explícito — el bot no completa nada ahí.
 
     Si el cliente porta más de una línea, se agrega UNA FILA POR CADA NÚMERO (con el resto de
     los datos repetido igual en cada una) — a pedido explícito, cada línea tiene que quedar
@@ -2845,6 +2886,7 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
         return
 
+    foto_dni_link = f'=HYPERLINK("{foto_dni_frente}";"Ver foto DNI")' if foto_dni_frente else ""
     fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y")
     numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) or [""]
 
@@ -2877,7 +2919,19 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             campos.get("Plan elegido", ""),
             # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
         ]
-        await append_google_sheets_row(row)
+        updated_range = await append_google_sheets_row(row)
+
+        # Foto DNI dorso (columna Y) se escribe aparte, ya sabiendo en qué fila cayó esta venta
+        # (ver docstring: no va en el mismo array para no tocar las columnas del equipo U-X).
+        if foto_dni_dorso and updated_range:
+            fila_match = re.search(r"![A-Z]+(\d+)", updated_range)
+            if fila_match:
+                formula_dorso = f'=HYPERLINK("{foto_dni_dorso}";"Ver foto DNI (dorso)")'
+                await _escribir_celda(f"{GOOGLE_SHEETS_SHEET_NAME}!Y{fila_match.group(1)}",
+                                        formula_dorso)
+            else:
+                logger.warning(f"No se pudo parsear el número de fila de '{updated_range}' "
+                                f"para escribir la foto de dorso del DNI.")
 
 
 async def _fetch_conversation_messages(conversation_id, minimo: int = None) -> list:
@@ -3279,16 +3333,17 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
             break
 
 
-def _extraer_fotos_dni(all_messages: list) -> str:
+def _extraer_fotos_dni(all_messages: list) -> tuple:
     """Busca, entre los mensajes entrantes de la conversación, las fotos que el cliente mandó
-    del DNI (frente y dorso) y arma el valor para la columna "Foto DNI" de Sheets con sus
-    links directos de Chatwoot (permanentes, no vencen — ver log_to_google_sheets).
+    del DNI (frente y dorso) y devuelve sus URLs de Chatwoot (permanentes, no vencen — ver
+    log_to_google_sheets) como (url_frente, url_dorso). Cualquiera de las dos puede venir "" si
+    no se encontró.
 
     No hay forma 100% confiable de saber CUÁLES imágenes son el DNI (el cliente puede haber
     mandado antes, por ejemplo, una captura de su plan actual) — como heurística, se toman las
-    ÚLTIMAS 2 imágenes que mandó el cliente en toda la conversación, asumiendo que la foto del
-    documento se pide al final del checklist, justo antes de derivar. Si el cliente solo mandó
-    una imagen en total, se usa esa. Si no mandó ninguna, devuelve "".
+    ÚLTIMAS 2 imágenes que mandó el cliente en toda la conversación, asumiendo que las fotos del
+    documento se piden al final del checklist, justo antes de derivar. Si el cliente solo mandó
+    una imagen en total, se usa esa como frente (dorso queda ""). Si no mandó ninguna, ("", "").
     """
     imagenes = []
     for m in all_messages:
@@ -3301,11 +3356,10 @@ def _extraer_fotos_dni(all_messages: list) -> str:
                     imagenes.append(url)
 
     if not imagenes:
-        return ""
+        return "", ""
     if len(imagenes) == 1:
-        return f"Foto: {imagenes[0]}"
-    frente, dorso = imagenes[-2], imagenes[-1]
-    return f"Frente: {frente} | Dorso: {dorso}"
+        return imagenes[0], ""
+    return imagenes[-2], imagenes[-1]
 
 
 async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
@@ -3316,8 +3370,8 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
     await add_conversation_label(conversation_id, DERIVADO_LABEL)
     telefono = await _get_contact_phone(conversation_id)
     fecha_nacimiento = campos.get("Fecha de nacimiento", "")
-    foto_dni_link = _extraer_fotos_dni(all_messages)
-    await log_to_google_sheets(campos, telefono, fecha_nacimiento, foto_dni_link)
+    foto_dni_frente, foto_dni_dorso = _extraer_fotos_dni(all_messages)
+    await log_to_google_sheets(campos, telefono, fecha_nacimiento, foto_dni_frente, foto_dni_dorso)
     await notify_camila_carga_sheets(campos, telefono)
 
 
