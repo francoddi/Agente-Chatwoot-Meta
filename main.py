@@ -1374,14 +1374,12 @@ Obtener:
 - compañía actual
 - número que quiere portar
 - plan elegido
-- DNI (el número, ver sección 54)
+- DNI (el número, y la foto de frente y dorso del documento — ver sección 54)
 - email
 - localidad
 - provincia
 - dirección
 - código postal
-
-NO pedir foto del DNI, solo el número.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 41. DATOS — PORTABILIDAD EMPRESA
@@ -1419,7 +1417,7 @@ Obtener:
 - provincia
 - dirección
 - código postal
-- DNI si Consumidor Final (el número, ver sección 54)
+- DNI si Consumidor Final (el número y la foto de frente y dorso — ver sección 54)
 - CUIT si Empresa
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1474,6 +1472,8 @@ NUMERO_A_PORTAR si corresponde
 
 DNI
 
+FOTO_DNI (frente y dorso — ver sección 54, es la única excepción que puede faltar)
+
 EMAIL
 
 LOCALIDAD
@@ -1484,7 +1484,7 @@ DIRECCION
 
 CODIGO_POSTAL
 
-Todos son obligatorios cuando aplican.
+Todos son obligatorios cuando aplican, salvo FOTO_DNI (ver sección 54).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 45. CHECKLIST — EMPRESA
@@ -1602,8 +1602,8 @@ Camila es la jefa de {BOT_NAME} y la asesora encargada del alta.
 Camila:
 
 - recibe la venta cerrada,
-- recibe los datos recopilados,
-- pide DNI frente y dorso,
+- recibe los datos recopilados (incluida la foto del DNI, que ahora se junta antes, con
+  {BOT_NAME}),
 - hace las validaciones,
 - carga la operación,
 - realiza el alta / portabilidad,
@@ -1659,6 +1659,7 @@ Tipo de portabilidad: Portabilidad
 Tipo de cliente: Consumidor final
 Nombre: [NOMBRE]
 DNI: [DNI]
+Fecha de nacimiento: [FECHA_NACIMIENTO]
 Compañía actual: [COMPANIA]
 Número a portar: [NUMERO]
 Plan elegido: [PLAN]
@@ -1721,6 +1722,7 @@ Tipo de portabilidad: Línea nueva
 Tipo de cliente: [Consumidor final o Empresa, el que corresponda]
 Nombre: [NOMBRE]
 DNI: [DNI]
+Fecha de nacimiento: [FECHA_NACIMIENTO, solo si es Consumidor final]
 Plan elegido: [PLAN]
 Email: [EMAIL]
 Localidad: [LOCALIDAD]
@@ -1752,21 +1754,44 @@ Mantenerlo corto.
 Empresa es el CUIT, ver secciones 41/45), junto con el resto de los datos (email, localidad,
 dirección, etc.). Es un dato obligatorio más del checklist, no opcional.
 
-NO pedir foto ni escaneo del documento — solo el número, escrito.
+ADEMÁS, {BOT_NAME} pide una FOTO DEL FRENTE y una FOTO DEL DORSO del DNI del titular de la
+línea (la misma persona de la que ya se están pidiendo el resto de los datos — nunca del que
+está chateando si es otra persona). Pedilo con naturalidad, en el mismo momento que pedís el
+número, por ejemplo:
 
-Igual que con el resto de los datos: no lo inventes, no lo confirmes vos, y si el cliente ya
-lo mandó espontáneamente antes, no lo vuelvas a pedir.
+"y de paso pasame una foto del frente y otra del dorso de tu DNI, así después no tenés que
+volver a mandarla y el alta sale más rápido"
 
-IMPORTANTE — esto NO reemplaza el chequeo real que hace Camila: {BOT_NAME} junta el número
-para que quede en la ficha y Camila no tenga que volver a pedirlo (eso es lo que evita que el
-cliente se frene justo en el último paso), pero la validación real contra el sistema de Claro
-(que no tenga deuda, que la línea esté en condiciones, etc.) la sigue haciendo Camila al momento
-del alta — {BOT_NAME} no valida nada, solo recolecta el dato. Si un cliente pregunta por qué le
-pedís el DNI o desconfía, podés explicarle esto con tus palabras (sección 56, objeciones).
+Por qué se pide (podés usarlo si el cliente pregunta o desconfía, con tus propias palabras):
+antes esto se lo pedía Camila recién al final, cuando ya estaba por hacer el alta, y eso hacía
+que algunos clientes se frenaran justo en el último paso. Pidiéndolo antes, Camila ya tiene
+todo listo y el trámite es más rápido.
+
+FECHA DE NACIMIENTO: NO se le pregunta al cliente como pregunta aparte. Cuando lleguen las
+fotos del DNI, leela vos directamente del documento (figura siempre) y agregala a la ficha
+final como un campo más (ver plantillas, secciones 50/52). Si por algún motivo no se puede
+leer bien la fecha en la foto (imagen borrosa, DNI viejo sin ese dato visible, etc.), dejá ese
+campo afuera de la ficha en vez de inventarlo.
+
+FRICCIÓN — ESTA ES LA ÚNICA EXCEPCIÓN QUE NO BLOQUEA EL HANDOFF: pedila con el mismo nivel de
+insistencia que el resto de los datos, no la trates como "opcional" de entrada. Pero si after
+insistir un par de veces el cliente se resiste mucho a mandar la foto (no la tiene a mano, no
+quiere, lo que sea), NO te quedes trabado ahí — seguí adelante y derivalo a Camila igual, sin
+la foto (y sin la fecha de nacimiento, si tampoco se pudo leer). No es el escenario ideal, pero
+perder la venta entera por una foto es peor que derivar sin ella.
+
+Igual que con el resto de los datos: no inventes el número ni la fecha, no los confirmes vos, y
+si el cliente ya mandó el número o las fotos espontáneamente antes, no se los vuelvas a pedir.
+
+IMPORTANTE — esto NO reemplaza el chequeo real que hace Camila: {BOT_NAME} junta el número y
+las fotos para que queden en la ficha y Camila no tenga que volver a pedirlos (eso es lo que
+evita que el cliente se frene justo en el último paso), pero la validación real contra el
+sistema de Claro (que no tenga deuda, que la línea esté en condiciones, etc.) la sigue haciendo
+Camila al momento del alta — {BOT_NAME} no valida nada, solo recolecta los datos.
 
 Flujo:
 
-{BOT_NAME.upper()} JUNTA TODOS LOS DATOS (incluido el DNI/CUIT) → CIERRA
+{BOT_NAME.upper()} JUNTA TODOS LOS DATOS (incluido DNI/CUIT y las fotos del documento) → CIERRA
 → CLIENTE ESCRIBE A CAMILA CON LA FICHA COMPLETA
 → CAMILA VALIDA EN EL SISTEMA Y HACE EL ALTA.
 
@@ -2804,8 +2829,10 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     cambio real). "DNI" se completa con el DNI si es Consumidor Final o el CUIT si es Empresa
     (la planilla no tiene columna separada para CUIT). "Segmento" se completa con Tipo de
     cliente (Consumidor final / Empresa). "F. nac" y "Foto DNI" se completan solo si el cliente
-    mandó la foto del documento (ver _extraer_dni_de_fotos): la fecha de nacimiento se lee de
-    la foto (no se le pregunta aparte) y la foto en sí se sube a Drive y se guarda el link.
+    mandó la foto del documento (ver _extraer_fotos_dni): la fecha de nacimiento la lee el
+    modelo directo de la foto (no se le pregunta aparte, sección 54) y en "Foto DNI" se guarda
+    el link directo a la foto tal como la sirve Chatwoot (no se sube a ningún lado aparte —
+    Chatwoot ya la guarda de forma permanente, el link no vence).
 
     Las columnas posteriores a "Plan" (Num seguimiento correo, PIN, Observaciones x2) no se
     incluyen en absoluto en la fila: al agregar una fila nueva esas celdas quedan intactas
@@ -2835,7 +2862,7 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             campos.get("Nombre", ""),
             campos.get("DNI", "") or campos.get("CUIT", ""),
             fecha_nacimiento,  # F. nac (se lee de la foto del DNI, si el cliente la mandó)
-            foto_dni_link,  # Foto DNI (link a Drive, si el cliente la mandó)
+            foto_dni_link,  # Foto DNI (link directo a Chatwoot, si el cliente la mandó)
             campos.get("Email", ""),
             campos.get("Compañía actual", "") or ("LÍNEA NUEVA" if es_linea_nueva else ""),
             campos.get("Tipo de cliente", ""),  # Segmento
@@ -3252,13 +3279,45 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
             break
 
 
-async def _registrar_derivacion_completa(conversation_id: int, campos: dict) -> None:
+def _extraer_fotos_dni(all_messages: list) -> str:
+    """Busca, entre los mensajes entrantes de la conversación, las fotos que el cliente mandó
+    del DNI (frente y dorso) y arma el valor para la columna "Foto DNI" de Sheets con sus
+    links directos de Chatwoot (permanentes, no vencen — ver log_to_google_sheets).
+
+    No hay forma 100% confiable de saber CUÁLES imágenes son el DNI (el cliente puede haber
+    mandado antes, por ejemplo, una captura de su plan actual) — como heurística, se toman las
+    ÚLTIMAS 2 imágenes que mandó el cliente en toda la conversación, asumiendo que la foto del
+    documento se pide al final del checklist, justo antes de derivar. Si el cliente solo mandó
+    una imagen en total, se usa esa. Si no mandó ninguna, devuelve "".
+    """
+    imagenes = []
+    for m in all_messages:
+        if m.get("message_type") != 0 or m.get("private"):
+            continue
+        for att in m.get("attachments") or []:
+            if att.get("file_type") == "image":
+                url = att.get("data_url") or att.get("file_url")
+                if url:
+                    imagenes.append(url)
+
+    if not imagenes:
+        return ""
+    if len(imagenes) == 1:
+        return f"Foto: {imagenes[0]}"
+    frente, dorso = imagenes[-2], imagenes[-1]
+    return f"Frente: {frente} | Dorso: {dorso}"
+
+
+async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
+                                          all_messages: list) -> None:
     """Etiqueta la conversación, registra en Sheets y avisa a Camila. Se llama SIEMPRE
     protegida con asyncio.shield desde process_conversation (ver ahí el porqué) para que una
     cancelación de la tarea que la llama no la corte a mitad de camino."""
     await add_conversation_label(conversation_id, DERIVADO_LABEL)
     telefono = await _get_contact_phone(conversation_id)
-    await log_to_google_sheets(campos, telefono)
+    fecha_nacimiento = campos.get("Fecha de nacimiento", "")
+    foto_dni_link = _extraer_fotos_dni(all_messages)
+    await log_to_google_sheets(campos, telefono, fecha_nacimiento, foto_dni_link)
     await notify_camila_carga_sheets(campos, telefono)
 
 
@@ -3357,7 +3416,9 @@ async def process_conversation(conversation_id: int) -> None:
             # de esa segunda vuelta se perdió en silencio. El shield garantiza que, una vez que
             # se decidió que hay una derivación real, esto SIEMPRE termine de correr.
             try:
-                await asyncio.shield(_registrar_derivacion_completa(conversation_id, campos))
+                await asyncio.shield(
+                    _registrar_derivacion_completa(conversation_id, campos, all_messages)
+                )
             except asyncio.CancelledError:
                 logger.info(f"Conversación {conversation_id}: la tarea se canceló durante la "
                             f"derivación (llegó un mensaje nuevo), pero el registro sigue "
