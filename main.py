@@ -2691,21 +2691,19 @@ async def _get_sheets_access_token():
     return creds.token
 
 
-async def append_google_sheets_row(row: list, intentos: int = 3):
+async def append_google_sheets_row(row: list, intentos: int = 3) -> bool:
     """Agrega una fila al final de la hoja configurada. Reintenta ante errores de red/timeout
-    (no ante un token inválido, eso no se arregla reintentando). Devuelve el "updatedRange" que
-    contestó la API (ej. "'Hoja 1'!A91:T91", de ahí se puede sacar el número de fila real para
-    escribir después en otra columna, ver _escribir_celda) si se agregó, o None si se agotaron
-    los reintentos — en ese caso, se le avisa al dueño para que no se pierda la venta en
-    silencio."""
+    (no ante un token inválido, eso no se arregla reintentando). Devuelve True si se agregó,
+    False si se agotaron los reintentos — en ese caso, se le avisa al dueño para que no se
+    pierda la venta en silencio."""
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
-        return None
+        return False
 
     token = await _get_sheets_access_token()
     if not token:
         logger.error("No se pudo obtener un token de Google Sheets; no se agregó la fila.")
         await _avisar_error_sheets(row)
-        return None
+        return False
 
     encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:A", safe="")
     url = (
@@ -2727,7 +2725,7 @@ async def append_google_sheets_row(row: list, intentos: int = 3):
                                   f"(intento {intento}/{intentos}): {resp.text[:1000]}")
                     resp.raise_for_status()
             logger.info("Fila agregada a Google Sheets.")
-            return resp.json().get("updates", {}).get("updatedRange")
+            return True
         except Exception as e:
             logger.error(f"No se pudo agregar la fila a Google Sheets (intento {intento}/{intentos}): {e}")
             if intento < intentos:
@@ -2735,36 +2733,7 @@ async def append_google_sheets_row(row: list, intentos: int = 3):
 
     logger.error("Se agotaron los reintentos, la fila NO se pudo cargar en Sheets.")
     await _avisar_error_sheets(row)
-    return None
-
-
-async def _escribir_celda(rango_a1: str, valor: str) -> bool:
-    """Escribe UN valor en UNA celda puntual (ej. "Hoja 1!Y91"), sin tocar nada más de la fila.
-    Se usa para completar "Foto DNI dorso" después de agregar la fila principal, en vez de
-    incluirla en esa misma fila — así no hay que mandar valores vacíos para las columnas del
-    equipo (PIN, Observaciones, etc.) que quedarían "tocadas" (string vacío) en vez de
-    realmente en blanco, que no es lo mismo para fórmulas como ISBLANK/COUNTBLANK."""
-    token = await _get_sheets_access_token()
-    if not token:
-        return False
-    encoded_range = quote(rango_a1, safe="")
-    url = (
-        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
-        f"/values/{encoded_range}"
-    )
-    try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.put(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-                params={"valueInputOption": "USER_ENTERED"},
-                json={"values": [[valor]]},
-            )
-            resp.raise_for_status()
-        return True
-    except Exception as e:
-        logger.error(f"No se pudo escribir la celda {rango_a1} en Google Sheets: {e}")
-        return False
+    return False
 
 
 async def _avisar_error_sheets(row: list) -> None:
@@ -2846,16 +2815,16 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
                                  foto_dni_frente: str = "", foto_dni_dorso: str = "") -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (confirmado contra el
-    encabezado real el 15/09/2026, después de que el equipo agregó "Foto DNI" entre "F. nac" y
-    "Email", y "Foto DNI dorso" se agregó como columna Y, al final de todo — si vuelven a
-    insertar/mover columnas a mano, hay que re-confirmar esto contra el encabezado real, porque
-    un desfasaje acá corre todos los datos de columna en silencio):
+    encabezado real el 15/09/2026, después de que el equipo agregó "Foto DNI" y "Foto DNI
+    dorso", las dos entre "F. nac" y "Email" — si vuelven a insertar/mover columnas a mano, hay
+    que re-confirmar esto contra el encabezado real, porque un desfasaje acá corre todos los
+    datos de columna en silencio):
 
     Estado | Vendedora | Fecha portación | Fecha de venta | Nombre y apellido | DNI | F. nac |
-    Foto DNI | Email | Empresa donante | Segmento | Provincia | Localidad | Direcc entrega |
-    Altura | Piso/depto | CP | Número a portar | Número de contacto | Plan | [Num seguimiento
-    correo | PIN | Observaciones | Observaciones — estas últimas 4 no se escriben, ver abajo] |
-    Foto DNI dorso (columna Y, se escribe aparte después del append, ver más abajo)
+    Foto DNI | Foto DNI dorso | Email | Empresa donante | Segmento | Provincia | Localidad |
+    Direcc entrega | Altura | Piso/depto | CP | Número a portar | Número de contacto | Plan |
+    [Num seguimiento correo | PIN | Observaciones | Observaciones — estas últimas 4 no se
+    escriben, ver abajo]
 
     Estado, Vendedora, Altura y Piso/depto quedan vacíos a propósito (no son datos que pida
     Valentina); Fecha portación también queda vacía (la completa el equipo cuando se hace el
@@ -2868,16 +2837,9 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     entero (que es larguísimo) — apuntan directo a Chatwoot, no se suben a ningún lado aparte,
     porque Chatwoot ya las guarda de forma permanente (el link no vence).
 
-    "Foto DNI dorso" (columna Y) se escribe en una llamada APARTE después de agregar la fila
-    principal (no viene en este mismo array "row") — por qué: si "Y" se completa así nomás en
-    el mismo array, hay que rellenar con "" las columnas U-X (Num seguimiento correo, PIN,
-    Observaciones x2, del equipo, que el bot nunca toca) para llegar hasta ahí, y una celda con
-    "" NO es lo mismo que una celda nunca tocada para fórmulas tipo ISBLANK/COUNTBLANK que
-    pueda estar usando el equipo — mejor no arriesgar eso.
-
-    Las columnas U-X (Num seguimiento correo, PIN, Observaciones x2) no se incluyen en absoluto
-    en la fila: al agregar una fila nueva esas celdas quedan intactas (vacías), a pedido
-    explícito — el bot no completa nada ahí.
+    Las columnas posteriores a "Plan" (Num seguimiento correo, PIN, Observaciones x2) no se
+    incluyen en absoluto en la fila: al agregar una fila nueva esas celdas quedan intactas
+    (vacías), a pedido explícito — el bot no completa nada ahí.
 
     Si el cliente porta más de una línea, se agrega UNA FILA POR CADA NÚMERO (con el resto de
     los datos repetido igual en cada una) — a pedido explícito, cada línea tiene que quedar
@@ -2886,7 +2848,8 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
         return
 
-    foto_dni_link = f'=HYPERLINK("{foto_dni_frente}";"Ver foto DNI")' if foto_dni_frente else ""
+    foto_frente = f'=HYPERLINK("{foto_dni_frente}";"Ver foto DNI")' if foto_dni_frente else ""
+    foto_dorso = f'=HYPERLINK("{foto_dni_dorso}";"Ver foto DNI (dorso)")' if foto_dni_dorso else ""
     fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y")
     numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) or [""]
 
@@ -2904,7 +2867,8 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             campos.get("Nombre", ""),
             campos.get("DNI", "") or campos.get("CUIT", ""),
             fecha_nacimiento,  # F. nac (se lee de la foto del DNI, si el cliente la mandó)
-            foto_dni_link,  # Foto DNI (link directo a Chatwoot, si el cliente la mandó)
+            foto_frente,  # Foto DNI (link directo a Chatwoot, si el cliente la mandó)
+            foto_dorso,  # Foto DNI dorso (ídem)
             campos.get("Email", ""),
             campos.get("Compañía actual", "") or ("LÍNEA NUEVA" if es_linea_nueva else ""),
             campos.get("Tipo de cliente", ""),  # Segmento
@@ -2919,19 +2883,7 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             campos.get("Plan elegido", ""),
             # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
         ]
-        updated_range = await append_google_sheets_row(row)
-
-        # Foto DNI dorso (columna Y) se escribe aparte, ya sabiendo en qué fila cayó esta venta
-        # (ver docstring: no va en el mismo array para no tocar las columnas del equipo U-X).
-        if foto_dni_dorso and updated_range:
-            fila_match = re.search(r"![A-Z]+(\d+)", updated_range)
-            if fila_match:
-                formula_dorso = f'=HYPERLINK("{foto_dni_dorso}";"Ver foto DNI (dorso)")'
-                await _escribir_celda(f"{GOOGLE_SHEETS_SHEET_NAME}!Y{fila_match.group(1)}",
-                                        formula_dorso)
-            else:
-                logger.warning(f"No se pudo parsear el número de fila de '{updated_range}' "
-                                f"para escribir la foto de dorso del DNI.")
+        await append_google_sheets_row(row)
 
 
 async def _fetch_conversation_messages(conversation_id, minimo: int = None) -> list:
