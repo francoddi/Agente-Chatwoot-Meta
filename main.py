@@ -2899,6 +2899,11 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
 
     foto_frente = f'=HYPERLINK("{foto_dni_frente}";"Ver foto DNI")' if foto_dni_frente else ""
     foto_dorso = f'=HYPERLINK("{foto_dni_dorso}";"Ver foto DNI (dorso)")' if foto_dni_dorso else ""
+    # El "'" al principio fuerza a Sheets a guardarlo como texto literal en vez de interpretar
+    # "26/10/1981" como una fecha real y convertirlo a su número de serie interno (ej. "29885")
+    # -- pasó en vivo con una venta real: la columna F. NAC no tiene formato de fecha aplicado
+    # (es nueva), así que mostraba el número crudo en vez de la fecha.
+    fecha_nacimiento_celda = f"'{fecha_nacimiento}" if fecha_nacimiento else ""
     fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y")
     numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) or [""]
 
@@ -2925,7 +2930,7 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             fecha_venta,
             campos.get("Nombre", ""),
             campos.get("DNI", "") or campos.get("CUIT", ""),
-            fecha_nacimiento,  # F. nac (se lee de la foto del DNI, si el cliente la mandó)
+            fecha_nacimiento_celda,  # F. nac (se lee de la foto del DNI, si el cliente la mandó)
             foto_frente,  # Foto DNI (link directo a Chatwoot, si el cliente la mandó)
             foto_dorso,  # Foto DNI dorso (ídem)
             campos.get("Email", ""),
