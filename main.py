@@ -3624,28 +3624,45 @@ async def process_conversation(conversation_id: int) -> None:
         # "escribile 'Hola Camila' para que no se pierda el chat") que NO son la ficha real —
         # eso generó una fila basura en Sheets una vez. Por eso se exige el arranque exacto de
         # la plantilla, y además que la ficha tenga campos reales (Nombre) antes de procesarla.
-        ficha = next((b for b in bubbles if "Hola Camila, quiero avanzar" in b), None)
-        campos = _parse_ficha_fields(ficha) if ficha else {}
-        if ficha and campos.get("Nombre"):
-            # asyncio.shield: si llega OTRO mensaje justo en este momento, schedule_conversation_
-            # processing() cancela esta tarea -- sin el shield, esa cancelación puede cortar a
-            # mitad de camino el etiquetado/Sheets/aviso a Camila SIN dejar ningún error en el
-            # log (una cancelación no es una excepción normal). Pasó en un caso real: el cliente
-            # sumó una segunda línea justo después de la primera derivación, y la carga a Sheets
-            # de esa segunda vuelta se perdió en silencio. El shield garantiza que, una vez que
-            # se decidió que hay una derivación real, esto SIEMPRE termine de correr.
+        #
+        # PUEDE HABER MÁS DE UNA FICHA en la misma respuesta: cuando dos personas distintas
+        # portan juntas en la misma conversación (ej: una arregla el cambio de ella y de un
+        # familiar), el modelo genera una ficha completa por persona, una atrás de la otra. Antes
+        # acá se usaba next(...) (se quedaba con la PRIMERA nomás) y la segunda persona se perdía
+        # en silencio -- encontrado en vivo con un caso real (dos líneas, dos personas: la
+        # primera quedó perfecta en Sheets, la segunda ni siquiera se intentó registrar). Ahora
+        # se procesan TODAS las fichas que aparezcan.
+        fichas_encontradas = [b for b in bubbles if "Hola Camila, quiero avanzar" in b]
+        fichas_validas = []
+        for ficha in fichas_encontradas:
+            campos = _parse_ficha_fields(ficha)
+            if campos.get("Nombre"):
+                fichas_validas.append(campos)
+            else:
+                logger.warning(f"Conversación {conversation_id}: se mandó el link de Camila SIN "
+                                f"ficha de datos — revisar, no debería pasar.")
+
+        if fichas_validas:
+            async def _registrar_todas_las_fichas():
+                for campos in fichas_validas:
+                    await _registrar_derivacion_completa(conversation_id, campos, all_messages)
+
+            # asyncio.shield sobre TODO el lote (no una por una): si llega OTRO mensaje justo en
+            # este momento, schedule_conversation_processing() cancela esta tarea -- sin el
+            # shield, esa cancelación puede cortar a mitad de camino el etiquetado/Sheets/aviso a
+            # Camila SIN dejar ningún error en el log (una cancelación no es una excepción
+            # normal). Pasó en un caso real: el cliente sumó una segunda línea justo después de
+            # la primera derivación, y la carga a Sheets de esa segunda vuelta se perdió en
+            # silencio. Blindar el lote entero (no cada ficha por separado) asegura que, si hay
+            # varias fichas en la misma respuesta, una cancelación a mitad de camino no corte
+            # antes de llegar a las siguientes.
             try:
-                await asyncio.shield(
-                    _registrar_derivacion_completa(conversation_id, campos, all_messages)
-                )
+                await asyncio.shield(_registrar_todas_las_fichas())
             except asyncio.CancelledError:
                 logger.info(f"Conversación {conversation_id}: la tarea se canceló durante la "
                             f"derivación (llegó un mensaje nuevo), pero el registro sigue "
                             f"protegido y va a terminar de todas formas.")
                 raise
-        else:
-            logger.warning(f"Conversación {conversation_id}: se mandó el link de Camila SIN "
-                            f"ficha de datos — revisar, no debería pasar.")
 
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
