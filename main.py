@@ -3407,19 +3407,34 @@ def _extraer_fotos_dni(all_messages: list) -> tuple:
 
     No hay forma 100% confiable de saber CUÁLES imágenes son el DNI (el cliente puede haber
     mandado antes, por ejemplo, una captura de su plan actual) — como heurística, se toman las
-    ÚLTIMAS 2 imágenes que mandó el cliente en toda la conversación, asumiendo que las fotos del
-    documento se piden al final del checklist, justo antes de derivar. Si el cliente solo mandó
-    una imagen en total, se usa esa como frente (dorso queda ""). Si no mandó ninguna, ("", "").
+    ÚLTIMAS 2 imágenes (ya deduplicadas, ver abajo) que mandó el cliente en toda la
+    conversación, asumiendo que las fotos del documento se piden al final del checklist, justo
+    antes de derivar. Si el cliente solo mandó una imagen en total, se usa esa como frente
+    (dorso queda ""). Si no mandó ninguna, ("", "").
+
+    DEDUPLICACIÓN: pasó en vivo con una venta real (el cliente reenvió sin querer la misma foto
+    del frente dos veces, por una confusión en la charla) — sin deduplicar, "las últimas 2"
+    terminaba agarrando [dorso, frente-repetido] en vez de [frente, dorso], y quedaban al
+    revés. Se descartan imágenes repetidas (mismo tamaño en bytes Y mismas dimensiones — el
+    attachment de Chatwoot ya trae esos datos, no hace falta descargarlas) antes de tomar las
+    últimas 2, para no contar una foto reenviada como si fuera una distinta.
     """
     imagenes = []
+    vistas = set()
     for m in all_messages:
         if m.get("message_type") != 0 or m.get("private"):
             continue
         for att in m.get("attachments") or []:
-            if att.get("file_type") == "image":
-                url = att.get("data_url") or att.get("file_url")
-                if url:
-                    imagenes.append(url)
+            if att.get("file_type") != "image":
+                continue
+            url = att.get("data_url") or att.get("file_url")
+            if not url:
+                continue
+            firma = (att.get("file_size"), att.get("width"), att.get("height"))
+            if firma[0] is not None and firma in vistas:
+                continue  # misma foto reenviada -> no cuenta como una imagen distinta
+            vistas.add(firma)
+            imagenes.append(url)
 
     if not imagenes:
         return "", ""
