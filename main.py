@@ -1735,6 +1735,18 @@ separando los números con coma, aunque sean varios. Ejemplo (3 líneas):
 
 "Número a portar: 2901547728, 2901447018, 2901582818"
 
+IMPORTANTE — "Plan elegido" tiene que seguir EL MISMO ORDEN, separado por coma también (NO
+"y", NO texto tipo "7 GB y 4 GB" — separar siempre con coma), para que el sistema pueda saber
+qué plan corresponde a cada número. El plan en la posición 1 es del número en la posición 1, el
+de la posición 2 es del número en la posición 2, y así:
+
+"Número a portar: 2494497946, 2494241702"
+"Plan elegido: 7 GB, 4 GB"
+
+(el primer número, 2494497946, es de 7 GB; el segundo, 2494241702, es de 4 GB). Si escribís
+"7 GB y 4 GB" en vez de "7 GB, 4 GB" con coma, el sistema no puede separarlos y la planilla
+puede quedar con el plan equivocado en cada línea.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 52. MENSAJE — LÍNEA NUEVA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2837,6 +2849,17 @@ def _split_numeros_a_portar(texto: str) -> list:
     return [n for n in limpios if n]
 
 
+def _split_planes(texto: str) -> list:
+    """Divide "Plan elegido" en una lista, uno por línea portada (sección 51.1 pide separarlos
+    con coma, en el mismo orden que "Número a portar", para poder emparejar cada plan con su
+    número). Tolera también " y " como separador por si el modelo no sigue la regla al pie de
+    la letra."""
+    if not texto:
+        return []
+    partes = re.split(r"\s*,\s*|\s+y\s+", texto.strip())
+    return [p.strip() for p in partes if p.strip()]
+
+
 async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
                                  foto_dni_frente: str = "", foto_dni_dorso: str = "") -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
@@ -2879,12 +2902,22 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y")
     numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) or [""]
 
+    # Si porta varias líneas, "Plan elegido" viene como una lista en el mismo orden que
+    # "Número a portar" (sección 51.1) — se empareja índice a índice para que cada fila tenga
+    # SU plan, no el string completo repetido en todas. Si por algún motivo la cantidad de
+    # planes no coincide con la de números (el modelo no separó bien, por ejemplo), no se
+    # arriesga a emparejar mal: se deja el string completo tal cual en todas las filas, como
+    # antes, para no inventar una asociación que puede ser incorrecta.
+    planes = _split_planes(campos.get("Plan elegido", ""))
+    plan_por_numero = planes if len(planes) == len(numeros) else None
+
     # "Línea nueva" no tiene compañía de origen ni número a portar (no hay línea previa que
     # traer) — esas celdas quedan vacías a propósito, pero así se ven igual que un dato
     # perdido. Se marcan explícitamente para que quede claro que es intencional.
     es_linea_nueva = "nueva" in campos.get("Tipo de portabilidad", "").lower()
 
-    for numero in numeros:
+    for i, numero in enumerate(numeros):
+        plan_fila = plan_por_numero[i] if plan_por_numero else campos.get("Plan elegido", "")
         row = [
             "",  # Estado (lo completa el equipo)
             "",  # Vendedora (la completa el equipo)
@@ -2906,7 +2939,7 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             campos.get("Código postal", ""),
             numero or ("LÍNEA NUEVA" if es_linea_nueva else ""),
             telefono,
-            campos.get("Plan elegido", ""),
+            plan_fila,
             # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
         ]
         await append_google_sheets_row(row)
