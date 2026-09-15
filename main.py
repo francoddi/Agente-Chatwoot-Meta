@@ -2351,6 +2351,10 @@ DERIVADO_LABEL = os.getenv("DERIVADO_LABEL", "ddd")
 GOOGLE_SHEETS_CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
 GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
 GOOGLE_SHEETS_SHEET_NAME = os.getenv("GOOGLE_SHEETS_SHEET_NAME", "Hoja 1")
+# sheetId interno (distinto del nombre) de la primera/única hoja de la planilla — 0 es el valor
+# real confirmado contra la API el 15/09/2026. Si algún día se agrega o reordena una hoja
+# (pestaña) dentro del mismo documento, hay que volver a confirmar este número.
+_GOOGLE_SHEETS_SHEET_ID = 0
 
 MAX_HISTORIAL = int(os.getenv("MAX_HISTORIAL", "60"))
 PORT = int(os.getenv("PORT", "8000"))
@@ -2729,19 +2733,20 @@ async def _get_sheets_access_token():
     return creds.token
 
 
-async def append_google_sheets_row(row: list, intentos: int = 3) -> bool:
+async def append_google_sheets_row(row: list, intentos: int = 3):
     """Agrega una fila al final de la hoja configurada. Reintenta ante errores de red/timeout
-    (no ante un token inválido, eso no se arregla reintentando). Devuelve True si se agregó,
-    False si se agotaron los reintentos — en ese caso, se le avisa al dueño para que no se
-    pierda la venta en silencio."""
+    (no ante un token inválido, eso no se arregla reintentando). Devuelve el "updatedRange" que
+    contestó la API (ej. "'Hoja 1'!A114:U114", de ahí se saca el número de fila real para el fix
+    de formato de los links, ver _forzar_links_visibles) si se agregó, o None si se agotaron los
+    reintentos — en ese caso, se le avisa al dueño para que no se pierda la venta en silencio."""
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
-        return False
+        return None
 
     token = await _get_sheets_access_token()
     if not token:
         logger.error("No se pudo obtener un token de Google Sheets; no se agregó la fila.")
         await _avisar_error_sheets(row)
-        return False
+        return None
 
     encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:A", safe="")
     url = (
@@ -2763,7 +2768,7 @@ async def append_google_sheets_row(row: list, intentos: int = 3) -> bool:
                                   f"(intento {intento}/{intentos}): {resp.text[:1000]}")
                     resp.raise_for_status()
             logger.info("Fila agregada a Google Sheets.")
-            return True
+            return resp.json().get("updates", {}).get("updatedRange")
         except Exception as e:
             logger.error(f"No se pudo agregar la fila a Google Sheets (intento {intento}/{intentos}): {e}")
             if intento < intentos:
@@ -2771,7 +2776,50 @@ async def append_google_sheets_row(row: list, intentos: int = 3) -> bool:
 
     logger.error("Se agotaron los reintentos, la fila NO se pudo cargar en Sheets.")
     await _avisar_error_sheets(row)
-    return False
+    return None
+
+
+async def _forzar_links_visibles(updated_range: str) -> None:
+    """Fuerza el formato "LINKED" (clickeable, subrayado) en las columnas H e I (Foto DNI /
+    Foto DNI dorso) de la fila recién agregada.
+
+    Por qué hace falta: encontrado en vivo con ventas reales -- una fila nueva puede heredar,
+    de la fila de arriba, un formato de celda que dice "mostrar el link como texto plano"
+    (hyperlinkDisplayType = PLAIN_TEXT) en vez del comportamiento normal (LINKED). El link
+    JSON/hyperlink de la celda queda perfecto (=HYPERLINK(...) funciona, el dato está bien),
+    pero visualmente no se ve ni se comporta como un link clickeable — quedaba pareciendo
+    texto plano no clickeable. Pasó dos veces seguidas con ventas reales. Este fix se corre
+    SIEMPRE después de cada fila nueva, sin importar si esa fila en particular tiene fotos o
+    no, para no depender de heredar el formato correcto de la fila de arriba nunca más."""
+    fila_match = re.search(r"![A-Z]+(\d+)", updated_range or "")
+    if not fila_match:
+        return
+    fila = int(fila_match.group(1))
+    token = await _get_sheets_access_token()
+    if not token:
+        return
+    body = {
+        "requests": [{
+            "repeatCell": {
+                "range": {
+                    "sheetId": _GOOGLE_SHEETS_SHEET_ID,
+                    "startRowIndex": fila - 1,
+                    "endRowIndex": fila,
+                    "startColumnIndex": 7,  # H
+                    "endColumnIndex": 9,  # I (exclusivo, o sea cubre H e I)
+                },
+                "cell": {"userEnteredFormat": {"hyperlinkDisplayType": "LINKED"}},
+                "fields": "userEnteredFormat.hyperlinkDisplayType",
+            }
+        }]
+    }
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}:batchUpdate"
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
+            resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"No se pudo forzar el formato de link visible en la fila {fila}: {e}")
 
 
 async def _avisar_error_sheets(row: list) -> None:
@@ -2947,7 +2995,9 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             plan_fila,
             # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
         ]
-        await append_google_sheets_row(row)
+        updated_range = await append_google_sheets_row(row)
+        if updated_range:
+            await _forzar_links_visibles(updated_range)
 
 
 async def _fetch_conversation_messages(conversation_id, minimo: int = None) -> list:
