@@ -2487,6 +2487,16 @@ MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "0"))
 # SYSTEM_PROMPT). La espera se elige al azar entre estos dos valores (en segundos) cada vez que
 # se programa, para que no sea siempre exactamente el mismo tiempo. El bot puede marcar una
 # respuesta como "tema cerrado" para que no se programe seguimiento después de ella.
+#
+# DESACTIVADO (16/09/2026): WhatsApp restringió la cuenta del negocio por 30 días citando
+# "spam... a través de automatizaciones". Medido en vivo: el seguimiento generaba mensajes
+# automáticos no pedidos al 61% de los leads, y el 91% de esos nunca convertía (la gran mayoría
+# ni siquiera contestaba) -- el patrón clásico que los sistemas de Meta marcan como spam. El
+# beneficio real (~19 ventas rescatadas sobre 398 conversaciones) no compensa el riesgo de que
+# la cuenta quede inhabilitada en vez de restringida. Se puede reactivar poniendo
+# FOLLOWUP_ENABLED=true en el .env si en algún momento se decide retomarlo (por ejemplo, con un
+# alcance más acotado que "cualquier lead que se queda callado").
+FOLLOWUP_ENABLED = os.getenv("FOLLOWUP_ENABLED", "false").lower() == "true"
 FOLLOWUP_DELAY_MIN_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MIN_SECONDS", "2700"))  # 45 min
 FOLLOWUP_DELAY_MAX_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MAX_SECONDS", "3600"))  # 60 min
 FOLLOWUP_CLOSE_MARKER = "[FIN_SEGUIMIENTO]"
@@ -3410,6 +3420,9 @@ _pending_followups: dict = {}
 
 
 def schedule_followup_check(conversation_id: int) -> None:
+    if not FOLLOWUP_ENABLED:
+        return
+
     existing = _pending_followups.get(conversation_id)
     if existing and not existing.done():
         existing.cancel()
