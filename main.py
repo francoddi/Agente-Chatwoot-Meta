@@ -72,6 +72,29 @@ def build_camila_availability_note() -> str:
         f"Camila atiende de lunes a viernes de 8 a 19hs. ¿Está disponible ahora? {disponibilidad}"
     )
 
+# Saludos iniciales, para elegir uno al azar POR CÓDIGO (no dejarlo en manos del modelo) --
+# encontrado en vivo: pedirle al modelo que "varíe" el saludo no alcanza, tiende a repetir
+# siempre la misma frase (o dos) igual, y eso hizo que WhatsApp bloqueara la cuenta del negocio
+# por 30 días (detección de mensajería masiva/spam: mismo texto literal a muchos números
+# distintos en poco tiempo). Random.choice() en Python SÍ garantiza variedad real.
+_SALUDOS_INICIALES = [
+    "hola, soy {bot_name} del equipo de Claro. contame, en que compania estas ahora?",
+    "hola! soy {bot_name}, del equipo de Claro. en que compania estas ahora?",
+    "hola, te ayudo con el cambio a Claro. decime en que compania estas para ver la promo que te corresponde",
+    "hola! contame, de que compania venis? asi te paso la promo correcta",
+    "hola, soy {bot_name}. para arrancar, decime en que compania estas ahora",
+    "hola! en que compania estas actualmente? te cuento la promo para pasarte a Claro",
+    "hola, que bueno que te interesa pasarte a Claro! en que compania estas hoy?",
+    "hola! para ver que promo te corresponde, contame en que compania estas ahora",
+    "hola, soy {bot_name} de Claro. decime de que compania venis y te paso los precios",
+    "hola! arrancamos: en que compania estas actualmente?",
+]
+
+
+def _elegir_saludo_inicial() -> str:
+    return random.choice(_SALUDOS_INICIALES).format(bot_name=BOT_NAME)
+
+
 SYSTEM_PROMPT = f"""PROMPT MAESTRO DEFINITIVO
 ASESORA COMERCIAL CLARO POR WHATSAPP
 VERSIÓN FINAL — CONVERSACIÓN NATURAL + VENTA + PRECIERRE + HANDOFF
@@ -664,11 +687,20 @@ Nunca preguntar nuevamente algo que ya fue informado.
 
 EL MENSAJE MÁS COMÚN es un genérico armado por el anuncio, tipo "Quiero pasarme a Claro 😊", sin ningún dato todavía.
 
-Respondé simple y directo: presentate (sección 1) y preguntá en qué compañía está ahora, sin vueltas. Por ejemplo:
+Respondé simple y directo: presentate (sección 1) y preguntá en qué compañía está ahora, sin vueltas.
+
+CRÍTICO — VARIAR DE VERDAD, no solo "poder" variar: mandar el mismo saludo, palabra por palabra, a muchos números distintos en poco tiempo es exactamente el patrón que WhatsApp/Meta detecta como mensajería masiva/spam y puede terminar bloqueando la cuenta del negocio entera (ya pasó una vez). No es un detalle de estilo, es un riesgo real para el negocio.
+
+Elegí una de estas variantes (o inventá una nueva con la misma idea) CADA VEZ, no uses siempre la misma:
 
 "hola, soy {BOT_NAME} del equipo de Claro. contame, en que compañia estas ahora?"
+"hola! soy {BOT_NAME}, del equipo de Claro. en que compañia estas ahora?"
+"hola, te ayudo con el cambio a Claro. decime en que compañia estas para ver la promo que te corresponde"
+"hola! contame, de que compañia venis? asi te paso la promo correcta"
+"hola, soy {BOT_NAME}. para arrancar, decime en que compañia estas ahora"
+"hola! en que compañia estas actualmente? te cuento la promo para pasarte a Claro"
 
-Variá la redacción, no repitas siempre esta misma frase.
+No repitas la misma variante que usaste en los últimos mensajes de otras conversaciones si te acordás cuál usaste — priorizá que cada saludo suene distinto al anterior.
 
 SI NO CONTESTA esa primera pregunta y tenés que volver a preguntar (ya sea en la misma charla o en un seguimiento automático), NO repitas la pregunta tal cual por segunda vez. Ahí sí cambiá de táctica: bajale la fricción mostrándole un ejemplo de precio directamente, así:
 
@@ -3586,9 +3618,24 @@ async def process_conversation(conversation_id: int) -> None:
         batch_turns.append({"role": "user", "content": content})
         kinds.append(kind)
 
+    notas_sistema = [{"role": "system", "content": build_camila_availability_note()}]
+    if not history_raw:
+        # Primer intercambio real de la conversación -> se sugiere un saludo elegido al azar
+        # por código (ver _SALUDOS_INICIALES), no queda en manos del modelo variar solo.
+        saludo = _elegir_saludo_inicial()
+        notas_sistema.append({
+            "role": "system",
+            "content": (
+                f"[Nota interna, no la muestres tal cual] Para el saludo de este primer mensaje, "
+                f"usá esta variante (podés ajustarla livianamente al contexto, pero no la "
+                f"cambies por otra completamente distinta — es importante que no siempre sea la "
+                f"misma frase, ver sección 17): \"{saludo}\""
+            ),
+        })
+
     messages = (
         [{"role": "system", "content": SYSTEM_PROMPT}]
-        + [{"role": "system", "content": build_camila_availability_note()}]
+        + notas_sistema
         + history
         + batch_turns
     )
