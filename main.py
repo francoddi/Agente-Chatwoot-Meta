@@ -47,6 +47,14 @@ LANGUAGE = "español argentino (voseo), directo y sin sonar a chatbot"
 # lleve directo al chat con ella. Configurable por entorno para no tocar el código si cambia.
 NUMERO_CAMILA = os.getenv("NUMERO_CAMILA", "[NUMERO_CAMILA_SIN_CONFIGURAR]")
 
+# Aviso automático a Camila ("se cargó en la planilla este número: X") cada vez que se registra
+# una venta. DESACTIVADO por defecto (16/09/2026) -- por las dudas, mientras se investiga la
+# restricción de WhatsApp por spam: son muchos mensajes automáticos, todos parecidos, mandados
+# siempre a la MISMA persona -- un patrón que también puede leerse como automatización. No hay
+# evidencia tan fuerte como con los seguimientos, pero es una precaución razonable mientras se
+# resuelve. Se reactiva con NOTIFY_CAMILA_ENABLED=true.
+NOTIFY_CAMILA_ENABLED = os.getenv("NOTIFY_CAMILA_ENABLED", "false").lower() == "true"
+
 # Horario de atención de Camila (para avisarle al cliente si está disponible o no al derivarlo).
 CAMILA_TIMEZONE = ZoneInfo("America/Argentina/Buenos_Aires")
 CAMILA_HORARIO_DESDE = dtime(8, 0)
@@ -2644,6 +2652,8 @@ async def notify_camila_carga_sheets(campos: dict, telefono: str) -> None:
     esto no afecta nada más: la etiqueta, el registro en Sheets y el resto del flujo con el
     cliente siguen funcionando igual, solo se salta este mensaje puntual.
     """
+    if not NOTIFY_CAMILA_ENABLED:
+        return
     if not NUMERO_CAMILA:
         return
     if datetime.now(CAMILA_TIMEZONE).weekday() == 6:  # 6 = domingo
