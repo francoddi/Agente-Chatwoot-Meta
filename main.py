@@ -1716,6 +1716,15 @@ confirme que los datos se usaron de verdad) — así no piensa que escribir todo
 y que ahora tiene que volver a explicar todo de cero. El mensaje que él le manda a Camila
 después puede ser bien simple porque Camila YA tiene todo de tu lado.
 
+IMPORTANTE — que quede claro que falta poco y va a ser rápido: después de cargar todos sus
+datos, un cliente puede sentir "uh, otra vez" cuando le decís que tiene que hablar con alguien
+más. Hay que cortar esa sensación explícitamente: dejar claro que como Camila ya tiene todo
+cargado de tu lado, con ella es solo para cerrar el alta, no para volver a explicar nada de
+cero — algo corto tipo "es solo para cerrar" / "ya está todo listo de este lado, con ella es
+rápido" / "no tenés que volver a contar nada, ya tiene todo". No hace falta forzarlo en cada
+mensaje con las mismas palabras, pero la idea de "esto ya casi termina, no arrancás de cero"
+tiene que quedar transmitida.
+
 Cuando todo esté completo:
 
 podés enviar algo como:
@@ -1726,9 +1735,11 @@ Mensaje 1:
 
 Mensaje 2:
 
-"mi jefa se encarga de dar las altas, ya le pasé todos tus datos. escribile por acá: {NUMERO_CAMILA}
+"mi jefa se encarga de dar las altas, ya le pasé todos tus datos así que con ella es solo para
+cerrar, no tenés que volver a explicar nada. escribile por acá: {NUMERO_CAMILA}
 
-algo simple tipo 'hola Camila, vengo de parte de {BOT_NAME} para pasarme a Claro' y sigue con vos"
+algo simple tipo 'hola Camila, vengo de parte de {BOT_NAME} para pasarme a Claro' y en un toque
+sigue con vos"
 
 No es obligatorio usar exactamente dos mensajes ni estas frases literales. Evitá decir "Camila"
 más de una vez en total entre los dos mensajes (usá "mi jefa", "ella" para las otras menciones)
@@ -2252,13 +2263,15 @@ CHECKLIST COMPLETO.
 
 SEGUNDO MENSAJE (dentro de horario, según la nota interna de disponibilidad):
 
-"mi jefa se encarga de dar las altas, ya le pasé todos tus datos. escribile por acá: {NUMERO_CAMILA}
+"mi jefa se encarga de dar las altas, ya le pasé todos tus datos así que con ella es solo para
+cerrar, no tenés que volver a explicar nada. escribile por acá: {NUMERO_CAMILA}
 
 algo simple tipo 'hola Camila, vengo de parte de {BOT_NAME} para pasarme a Claro' y te contesta en menos de 5 minutos"
 
 SEGUNDO MENSAJE (fuera de horario, según la nota interna de disponibilidad):
 
-"mi jefa se encarga de dar las altas, ya le pasé todos tus datos. escribile por acá: {NUMERO_CAMILA}
+"mi jefa se encarga de dar las altas, ya le pasé todos tus datos así que con ella es solo para
+cerrar, no tenés que volver a explicar nada. escribile por acá: {NUMERO_CAMILA}
 
 algo simple tipo 'hola Camila, vengo de parte de {BOT_NAME} para pasarme a Claro' — atiende de lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible"
 
@@ -3370,6 +3383,23 @@ def split_into_bubbles(text: str) -> list:
     return bubbles or [text.strip() or "..."]
 
 
+def _separar_ficha_de_burbuja(bubble: str) -> list:
+    """Red de seguridad: si el modelo no puso "---" entre el mensaje de handoff (el que sí le
+    llega al cliente) y la ficha interna, quedan mezclados en una sola burbuja -- y como esa
+    burbuja contiene el marcador de la ficha, se manda ENTERA como nota privada (ver es_ficha en
+    process_conversation/send_followup_if_needed), perdiendo el mensaje real con el link a
+    Camila. Si el marcador aparece con texto antes, separa esa parte como burbuja pública."""
+    marker = "Hola Camila, quiero avanzar"
+    idx = bubble.find(marker)
+    if idx <= 0:
+        return [bubble]
+    antes = bubble[:idx].strip()
+    ficha = bubble[idx:].strip()
+    if not antes:
+        return [bubble]
+    return [antes, ficha]
+
+
 # --------------------------------------------------------------------------------------
 # OpenRouter
 # --------------------------------------------------------------------------------------
@@ -3547,6 +3577,7 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         return
 
     bubbles = split_into_bubbles(reply)
+    bubbles = [b2 for b in bubbles for b2 in _separar_ficha_de_burbuja(b)]
     logger.info(f"Conversación {conversation_id}: enviando seguimiento automático en "
                 f"{len(bubbles)} burbuja(s): {reply[:200]!r}")
 
@@ -3696,6 +3727,7 @@ async def process_conversation(conversation_id: int) -> None:
     reply = reply.replace(FOLLOWUP_CLOSE_MARKER, "").strip()
 
     bubbles = split_into_bubbles(reply)
+    bubbles = [b2 for b in bubbles for b2 in _separar_ficha_de_burbuja(b)]
     logger.info(f"Conversación {conversation_id}: agrupé {len(batch)} mensaje(s) entrante(s) "
                 f"({', '.join(kinds)}) y respondo en {len(bubbles)} burbuja(s) "
                 f"(cierra_seguimiento={close_followups}): {reply[:200]!r}")
