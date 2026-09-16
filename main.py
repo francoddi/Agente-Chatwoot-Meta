@@ -1704,6 +1704,12 @@ Camila NO debería volver a vender desde cero.
 49. MENSAJE DE HANDOFF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+CAMBIO DE FLUJO IMPORTANTE: antes, al cliente se le pedía que copie y reenvíe un mensaje largo
+con todos sus datos a Camila. YA NO — a pedido explícito, ahora es mucho más simple: el cliente
+solo tiene que escribirle a Camila y decirle que viene de tu parte, nada de copiar/pegar datos.
+Los datos ya quedan registrados de nuestro lado (ver sección 50/51/52 — seguís generando la
+ficha igual, pero es interna, el cliente nunca la ve, ver el aviso al final de esta sección).
+
 Cuando todo esté completo:
 
 podés enviar algo como:
@@ -1714,13 +1720,14 @@ Mensaje 1:
 
 Mensaje 2:
 
-"ahora te voy a pasar un mensaje con tus datos. tocá este link para escribirle directo a Camila: {NUMERO_CAMILA}
+"ahora escribile directo a Camila acá: {NUMERO_CAMILA}
 
-es mi jefa, ella se encarga de hacer el alta y terminar el cambio. apenas se abra el chat, reenviale el mensaje que te paso ahora"
+contale que venís de parte de {BOT_NAME} para pasarte a Claro, ella ya tiene tus datos cargados y sigue con vos para terminar el alta"
 
 No es obligatorio usar exactamente dos mensajes.
 
-Elegir la forma más natural.
+Elegir la forma más natural. Variá la redacción entre conversaciones (no repitas siempre la
+misma frase — mismo motivo que el saludo inicial, sección 17).
 
 DISPONIBILIDAD DE CAMILA:
 
@@ -1750,15 +1757,21 @@ la fecha de nacimiento de una foto borrosa, y en vez de omitir esas líneas escr
 foto]" en el mensaje real que le llegó a Camila — como si fuera un valor válido. No lo es: es
 un placeholder, información inútil que ensucia la ficha y que Camila no puede usar para nada.
 
-REGLA: en el mensaje final que le mandás al cliente para reenviar a Camila, CADA línea tiene
-que tener o (a) el dato real que conseguiste, o (b) no estar — nunca corchetes, nunca una
-descripción de lo que debería ir ahí, nunca placeholders de ningún tipo. Si no pudiste leer un
-dato (de una foto borrosa, de un mensaje cortado, lo que sea), aplicá la regla de "NO incluir
-campos vacíos": sacás esa línea entera de la ficha, no la dejás con un corchete.
+REGLA: en la ficha final (ver secciones 50/51/52), CADA línea tiene que tener o (a) el dato
+real que conseguiste, o (b) no estar — nunca corchetes, nunca una descripción de lo que
+debería ir ahí, nunca placeholders de ningún tipo. Si no pudiste leer un dato (de una foto
+borrosa, de un mensaje cortado, lo que sea), aplicá la regla de "NO incluir campos vacíos":
+sacás esa línea entera de la ficha, no la dejás con un corchete.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-50. MENSAJE PARA REENVIAR — CONSUMIDOR FINAL
+50. FICHA INTERNA (YA NO SE LE MANDA AL CLIENTE) — CONSUMIDOR FINAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Esta ficha la seguís generando SIEMPRE igual que antes cuando el checklist está completo — es
+lo que el sistema usa para registrar la venta (Sheets) y queda guardada como nota interna en
+Chatwoot. El cliente NO la ve ni tiene que copiarla ni reenviarla — eso ya se lo explicaste con
+el mensaje simple de la sección 49. Generala en el mismo turno, como una burbuja más de tu
+respuesta (el sistema se encarga de que no salga por WhatsApp).
 
 Generar:
 
@@ -1788,7 +1801,7 @@ apellido más común o más largo que te parezca probable ("Quintana") — usá 
 el cliente escribió, tal cual. Si no estás seguro de que esté completo, preguntale.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-51. MENSAJE PARA REENVIAR — EMPRESA
+51. FICHA INTERNA (YA NO SE LE MANDA AL CLIENTE) — EMPRESA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 "Hola Camila, quiero avanzar con mi portabilidad a Claro.
@@ -1838,7 +1851,7 @@ de la posición 2 es del número en la posición 2, y así:
 puede quedar con el plan equivocado en cada línea.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-52. MENSAJE — LÍNEA NUEVA
+52. FICHA INTERNA (YA NO SE LE MANDA AL CLIENTE) — LÍNEA NUEVA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 "Hola Camila, quiero avanzar con una línea nueva de Claro.
@@ -1861,15 +1874,11 @@ Agregar DNI si Consumidor final, CUIT si Empresa (nunca los dos).
 53. DESPUÉS DE LA FICHA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Puede decir:
+El mensaje 2 de la sección 49 ya le explica al cliente qué hacer (escribirle a Camila y decirle
+que viene de tu parte) — no hace falta agregar nada más después de eso ni de la ficha interna.
 
-"reenviáselo tal cual y ella ya sigue con vos para hacer el alta"
-
-o:
-
-"mandale ese mensaje y ella ya termina el alta con vos"
-
-Mantenerlo corto.
+NUNCA digas frases como "reenviáselo" o "mandale ese mensaje" — eso era del flujo viejo, cuando
+el cliente tenía que copiar la ficha. Ya no aplica: la ficha es interna, el cliente no la ve.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 54. DNI
@@ -2235,17 +2244,17 @@ CHECKLIST COMPLETO.
 
 SEGUNDO MENSAJE (dentro de horario, según la nota interna de disponibilidad):
 
-"tocá este link para escribirle directo a Camila: {NUMERO_CAMILA}
+"ahora escribile directo a Camila acá: {NUMERO_CAMILA}
 
-es mi jefa, ella se encarga de hacer el alta, y te contesta en menos de 5 minutos"
+contale que venís de parte de {BOT_NAME} para pasarte a Claro, ella ya tiene tus datos y te contesta en menos de 5 minutos"
 
 SEGUNDO MENSAJE (fuera de horario, según la nota interna de disponibilidad):
 
-"tocá este link para escribirle directo a Camila: {NUMERO_CAMILA}
+"ahora escribile directo a Camila acá: {NUMERO_CAMILA}
 
-es mi jefa, ella se encarga de hacer el alta. atiende de lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible"
+contale que venís de parte de {BOT_NAME} para pasarte a Claro, ella ya tiene tus datos cargados. atiende de lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible"
 
-TERCER MENSAJE:
+FICHA INTERNA (se genera igual, queda como nota interna, el cliente NO la ve):
 
 "Hola Camila, quiero avanzar con mi portabilidad a Claro.
 
@@ -2261,11 +2270,8 @@ Provincia: Buenos Aires
 Dirección: XXXX
 Código postal: XXXX"
 
-CUARTO MENSAJE SI RESULTA NATURAL:
-
-"reenviáselo tal cual y ella ya sigue con vos"
-
-NO incluir precio en la ficha.
+NO incluir precio en la ficha. NO agregues un mensaje después pidiendo que "reenvíe" nada —
+eso ya no aplica, el segundo mensaje ya le dijo todo lo que tiene que hacer.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 67. PRE-CHECK ANTES DE RESPONDER
@@ -3196,10 +3202,15 @@ def _map_history(messages: list) -> list:
     return history
 
 
-async def send_message(conversation_id, content: str):
-    """Crea un mensaje saliente en Chatwoot. Chatwoot se encarga de entregarlo por WhatsApp."""
+async def send_message(conversation_id, content: str, private: bool = False):
+    """Crea un mensaje en Chatwoot. Si private=False (default), Chatwoot lo entrega por
+    WhatsApp normalmente. Si private=True, queda como nota interna SOLO visible en Chatwoot —
+    no le llega nada al cliente por WhatsApp. Se usa para la ficha de datos que antes se le
+    mandaba al cliente para reenviar a Camila (ver sección 49): ahora se sigue generando igual
+    para que el sistema registre la venta (Sheets), pero como nota interna, no como mensaje
+    real — el cliente ya no tiene que copiar/reenviar nada."""
     url = f"{_chatwoot_base(conversation_id)}/messages"
-    body = {"content": content, "message_type": "outgoing"}
+    body = {"content": content, "message_type": "outgoing", "private": private}
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             resp = await client.post(url, headers=_chatwoot_headers(), json=body)
@@ -3532,8 +3543,11 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
                 f"{len(bubbles)} burbuja(s): {reply[:200]!r}")
 
     for bubble in bubbles:
+        # Mismo criterio que en process_conversation: la ficha nunca se manda como mensaje
+        # real al cliente, queda como nota interna.
+        es_ficha = "Hola Camila, quiero avanzar" in bubble
         try:
-            await send_message(conversation_id, bubble)
+            await send_message(conversation_id, bubble, private=es_ficha)
         except Exception as e:
             logger.error(f"Error enviando seguimiento a la conversación {conversation_id}: {e}")
             break
@@ -3679,8 +3693,15 @@ async def process_conversation(conversation_id: int) -> None:
                 f"(cierra_seguimiento={close_followups}): {reply[:200]!r}")
 
     for bubble in bubbles:
+        # La ficha de datos ("Hola Camila, quiero avanzar...") ya NO se le manda al cliente
+        # como mensaje real -- a pedido explícito, se cambió el flujo para que el cliente ya
+        # no tenga que copiar/reenviar nada (sección 49/53). El modelo la sigue generando igual
+        # (la necesitamos para registrar la venta en Sheets, ver más abajo), pero acá se manda
+        # como NOTA INTERNA (private=True) en vez de mensaje saliente real: queda guardada en
+        # Chatwoot para referencia, pero no le llega nada por WhatsApp al cliente.
+        es_ficha = "Hola Camila, quiero avanzar" in bubble
         try:
-            await send_message(conversation_id, bubble)
+            await send_message(conversation_id, bubble, private=es_ficha)
         except Exception as e:
             logger.error(f"Error enviando una burbuja a la conversación {conversation_id}: {e}")
             break
