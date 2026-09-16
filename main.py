@@ -89,17 +89,21 @@ def build_camila_availability_note() -> str:
 # IMPORTANTE: TODAS tienen que incluir "soy {bot_name}" — el negocio quiere que el bot siempre
 # se presente por nombre en el primer mensaje, sin excepción (encontrado en vivo: algunas
 # variantes viejas no lo tenían, y eso generó un saludo sin presentación real).
+#
+# IMPORTANTE (16/09/2026, a pedido explícito): el saludo tiene que ser SIEMPRE la misma idea —
+# "hola, soy {bot_name} del equipo de Claro. contame, en que compañia estas ahora?" — variando
+# solo palabras sueltas (mayúsculas/signos, "contame"/"decime", "ahora"/"hoy"/"en este momento",
+# etc.), NO la estructura ni agregando contenido nuevo (nada de "te ayudo con el cambio", "te
+# paso los precios", etc. — eso quedó afuera a propósito).
 _SALUDOS_INICIALES = [
     "hola, soy {bot_name} del equipo de Claro. contame, en que compania estas ahora?",
-    "hola! soy {bot_name}, del equipo de Claro. en que compania estas ahora?",
-    "hola, soy {bot_name}, te ayudo con el cambio a Claro. decime en que compania estas para ver la promo que te corresponde",
-    "hola! soy {bot_name}, del equipo de Claro. de que compania venis? asi te paso la promo correcta",
-    "hola, soy {bot_name}. para arrancar, decime en que compania estas ahora",
-    "hola! soy {bot_name}, de Claro. en que compania estas actualmente? te cuento la promo",
-    "hola, soy {bot_name} de Claro, que bueno que te interesa pasarte! en que compania estas hoy?",
-    "hola! soy {bot_name}, del equipo de Claro. para ver que promo te corresponde, contame en que compania estas",
-    "hola, soy {bot_name} de Claro. decime de que compania venis y te paso los precios",
-    "hola! soy {bot_name}, de Claro. arrancamos: en que compania estas actualmente?",
+    "hola! soy {bot_name}, del equipo de Claro. contame, en que compania estas ahora?",
+    "hola, soy {bot_name} del equipo de Claro. decime, en que compania estas ahora?",
+    "hola! soy {bot_name}, del equipo de Claro. contame en que compania estas?",
+    "hola, soy {bot_name}, del equipo de Claro. contame, en que compania estas en este momento?",
+    "hola! soy {bot_name} del equipo de Claro. decime, en que compania estas hoy?",
+    "hola, soy {bot_name} del equipo de Claro. contame, en que compania estas actualmente?",
+    "hola! soy {bot_name}, del equipo de Claro. contame, en que compania estas hoy?",
 ]
 
 
