@@ -77,17 +77,21 @@ def build_camila_availability_note() -> str:
 # siempre la misma frase (o dos) igual, y eso hizo que WhatsApp bloqueara la cuenta del negocio
 # por 30 días (detección de mensajería masiva/spam: mismo texto literal a muchos números
 # distintos en poco tiempo). Random.choice() en Python SÍ garantiza variedad real.
+#
+# IMPORTANTE: TODAS tienen que incluir "soy {bot_name}" — el negocio quiere que el bot siempre
+# se presente por nombre en el primer mensaje, sin excepción (encontrado en vivo: algunas
+# variantes viejas no lo tenían, y eso generó un saludo sin presentación real).
 _SALUDOS_INICIALES = [
     "hola, soy {bot_name} del equipo de Claro. contame, en que compania estas ahora?",
     "hola! soy {bot_name}, del equipo de Claro. en que compania estas ahora?",
-    "hola, te ayudo con el cambio a Claro. decime en que compania estas para ver la promo que te corresponde",
-    "hola! contame, de que compania venis? asi te paso la promo correcta",
+    "hola, soy {bot_name}, te ayudo con el cambio a Claro. decime en que compania estas para ver la promo que te corresponde",
+    "hola! soy {bot_name}, del equipo de Claro. de que compania venis? asi te paso la promo correcta",
     "hola, soy {bot_name}. para arrancar, decime en que compania estas ahora",
-    "hola! en que compania estas actualmente? te cuento la promo para pasarte a Claro",
-    "hola, que bueno que te interesa pasarte a Claro! en que compania estas hoy?",
-    "hola! para ver que promo te corresponde, contame en que compania estas ahora",
+    "hola! soy {bot_name}, de Claro. en que compania estas actualmente? te cuento la promo",
+    "hola, soy {bot_name} de Claro, que bueno que te interesa pasarte! en que compania estas hoy?",
+    "hola! soy {bot_name}, del equipo de Claro. para ver que promo te corresponde, contame en que compania estas",
     "hola, soy {bot_name} de Claro. decime de que compania venis y te paso los precios",
-    "hola! arrancamos: en que compania estas actualmente?",
+    "hola! soy {bot_name}, de Claro. arrancamos: en que compania estas actualmente?",
 ]
 
 
