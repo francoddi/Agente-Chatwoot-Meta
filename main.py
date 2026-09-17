@@ -3209,6 +3209,33 @@ async def _avisar_error_sheets(row: list) -> None:
         logger.error(f"No se pudo avisar del error de Sheets: {e}")
 
 
+async def _avisar_fallo_respuesta(conversation_id, detalle: str) -> None:
+    """Le avisa al dueño por WhatsApp que un cliente se quedó sin respuesta después de agotar
+    los reintentos (ver process_conversation), para que un humano pueda intervenir a tiempo --
+    igual que venía pasando a mano (caso real: conv 723, +5493583415031, el cliente esperó 17
+    minutos hasta que alguien del equipo le contestó). A propósito NO le manda nada al cliente:
+    a pedido explícito, un mensaje genérico de "tuve un problema técnico" se siente peor que
+    nada en el momento de más intención de la charla -- mejor que un humano se entere y
+    responda de verdad."""
+    if not NUMERO_DUENO:
+        return
+    telefono_cliente = await _get_contact_phone(conversation_id)
+    mensaje = (
+        f"⚠️ Un cliente se quedó sin respuesta del bot después de varios intentos.\n"
+        f"Conversación: {conversation_id}\n"
+        f"Teléfono: {telefono_cliente or '(no se pudo obtener)'}\n"
+        f"Puede necesitar que alguien le escriba a mano.\n"
+        f"Detalle técnico: {detalle}"
+    )
+    conv_id = await _find_conversation_by_phone(NUMERO_DUENO)
+    if not conv_id:
+        return
+    try:
+        await send_message(conv_id, mensaje)
+    except Exception as e:
+        logger.error(f"No se pudo avisar del fallo de respuesta: {e}")
+
+
 def _parse_ficha_fields(ficha: str) -> dict:
     """Convierte la ficha ("Campo: Valor" línea por línea) en un diccionario.
 
@@ -3858,21 +3885,25 @@ async def process_conversation(conversation_id: int) -> None:
                     f"se cancela la respuesta agrupada.")
         return
 
-    all_messages = await _fetch_conversation_messages(conversation_id)
+    # Reintenta la lectura del historial (hiccup transitorio de la API de Chatwoot) antes de
+    # darse por vencido -- a pedido explícito: "si hay un fallo, que vuelva a pensar y genere
+    # una respuesta acorde", NUNCA un mensaje genérico de disculpa (eso se probó y se sacó, se
+    # sentía como perder la venta -- ver el comentario grande más abajo).
+    all_messages = None
+    for intento in range(1, 4):
+        all_messages = await _fetch_conversation_messages(conversation_id)
+        if all_messages:
+            break
+        logger.warning(f"Conversación {conversation_id}: intento {intento}/3 sin poder traer "
+                        f"los mensajes de Chatwoot.")
+        if intento < 3:
+            await asyncio.sleep(3 * intento)
+
     if not all_messages:
-        logger.error(f"No se pudo obtener los mensajes de la conversación {conversation_id} para responder.")
-        # Antes esto dejaba al cliente sin ninguna respuesta y sin rastro (encontrado en vivo:
-        # "hay muchas conversaciones que el bot deja de contestar sin razón aparente" -- un
-        # cliente mandó un mensaje, algo falló trayendo el historial de Chatwoot, y ahí quedó,
-        # sin ningún aviso). Mejor avisarle que hubo un problema técnico que dejarlo en silencio.
-        try:
-            await send_message(conversation_id, (
-                "Disculpa, tuve un problema técnico para procesar tu mensaje. ¿Podrías intentar "
-                "de nuevo en un momento? Si prefieres, puedo derivarte con un asesor humano."
-            ))
-        except Exception:
-            logger.exception(f"Conversación {conversation_id}: tampoco se pudo mandar el aviso de "
-                              f"problema técnico tras fallar la lectura de mensajes.")
+        logger.error(f"Conversación {conversation_id}: se agotaron los 3 intentos, no se pudo "
+                      f"traer el historial para responder. No se le manda nada al cliente (a "
+                      f"pedido explícito, nada de mensajes genéricos) -- se avisa al dueño.")
+        await _avisar_fallo_respuesta(conversation_id, "no se pudo leer el historial de Chatwoot")
         return
 
     all_messages = sorted(all_messages, key=lambda m: m.get("id") or 0)
@@ -3900,108 +3931,125 @@ async def process_conversation(conversation_id: int) -> None:
         logger.info(f"Conversación {conversation_id}: no hay mensajes entrantes pendientes, no se responde.")
         return
 
-    try:
-        history = _map_history(history_raw)
-
-        batch_turns = []
-        kinds = []
-        for m in batch:
-            content, kind = await build_message_content(m)
-            batch_turns.append({"role": "user", "content": content})
-            kinds.append(kind)
-
-        notas_sistema = [{"role": "system", "content": build_camila_availability_note()}]
-        if not history_raw:
-            # Primer intercambio real de la conversación -> se sugiere un saludo elegido al azar
-            # por código (ver _SALUDOS_INICIALES), no queda en manos del modelo variar solo.
-            saludo = _elegir_saludo_inicial()
-            notas_sistema.append({
-                "role": "system",
-                "content": (
-                    f"[Nota interna, no la muestres tal cual] Para el saludo de este primer mensaje, "
-                    f"usá esta variante (podés ajustarla livianamente al contexto, pero no la "
-                    f"cambies por otra completamente distinta — es importante que no siempre sea la "
-                    f"misma frase, ver sección 17): \"{saludo}\""
-                ),
-            })
-
-        messages = (
-            [{"role": "system", "content": SYSTEM_PROMPT}]
-            + notas_sistema
-            + history
-            + batch_turns
-        )
-        reply = await call_openrouter(messages)
-
-        # El modelo puede marcar que el tema quedó cerrado y no corresponde programar un
-        # seguimiento automático después de esta respuesta (ver NOTA TÉCNICA en el SYSTEM_PROMPT).
-        close_followups = FOLLOWUP_CLOSE_MARKER in reply
-        reply = reply.replace(FOLLOWUP_CLOSE_MARKER, "").strip()
-
-        # Corrección de un dato después de derivar (ver sección 49.2 del SYSTEM_PROMPT y
-        # _corregir_dato_sheets): el modelo puede agregar una o más marcas [CORRECCION_DATO ...] al
-        # final de su respuesta -- nunca se le muestran al cliente, acá se sacan del texto y se
-        # procesan aparte. Protegido con asyncio.shield por el mismo motivo que el registro de
-        # fichas más abajo: si esta tarea se cancela a mitad de camino (llegó un mensaje nuevo del
-        # cliente mientras tanto), no queremos perder una corrección a mitad de aplicar.
-        correcciones = CORRECCION_DATO_RE.findall(reply)
-        reply = CORRECCION_DATO_RE.sub("", reply).strip()
-        if correcciones:
-            async def _aplicar_correcciones():
-                telefono = await _get_contact_phone(conversation_id)
-                for campo, valor in correcciones:
-                    ok = await _corregir_dato_sheets(telefono, campo, valor)
-                    if not ok:
-                        logger.error(f"Conversación {conversation_id}: no se pudo aplicar la "
-                                     f"corrección de {campo!r} -> {valor!r} en Sheets.")
-            try:
-                await asyncio.shield(_aplicar_correcciones())
-            except asyncio.CancelledError:
-                logger.info(f"Conversación {conversation_id}: cancelación durante la corrección de "
-                            f"datos, protegida con shield, se dejó terminar igual.")
-                raise
-
-        bubbles = split_into_bubbles(reply)
-        bubbles = [b2 for b in bubbles for b2 in _separar_ficha_de_burbuja(b)]
-        logger.info(f"Conversación {conversation_id}: agrupé {len(batch)} mensaje(s) entrante(s) "
-                    f"({', '.join(kinds)}) y respondo en {len(bubbles)} burbuja(s) "
-                    f"(cierra_seguimiento={close_followups}): {reply[:200]!r}")
-
-        for bubble in bubbles:
-            # La ficha de datos ("Hola Camila, quiero avanzar...") ya NO se le manda al cliente
-            # como mensaje real -- a pedido explícito, se cambió el flujo para que el cliente ya
-            # no tenga que copiar/reenviar nada (sección 49/53). El modelo la sigue generando igual
-            # porque el texto se parsea más abajo para registrar la venta en Sheets (ver
-            # fichas_encontradas), pero eso se hace en memoria a partir de "bubbles"/"reply" --
-            # no hace falta que quede guardada como mensaje en Chatwoot para nada. A pedido
-            # explícito (18/09/2026: "se esta mandando el mensaje anterior tamb pero con un
-            # candado... se puede sacar?") se dejó de mandar del todo, ni siquiera como nota
-            # privada -- antes se mandaba con private=True (aparecía con el ícono de candado en
-            # Chatwoot) solo como referencia visual, pero no cumplía ninguna función real.
-            if "Hola Camila, quiero avanzar" in bubble:
-                continue
-            try:
-                await send_message(conversation_id, bubble, private=False)
-            except Exception as e:
-                logger.error(f"Error enviando una burbuja a la conversación {conversation_id}: {e}")
-                break
-    except Exception:
-        # Cualquier falla inesperada generando o mandando la respuesta (Chatwoot, Sheets,
-        # descarga de un adjunto, lo que sea) NO puede dejar al cliente en silencio total --
-        # antes, esto se colaba hasta _process_after_delay(), que solo lo logueaba y listo,
-        # sin avisarle nada al cliente (encontrado en vivo: conversaciones donde el bot
-        # "dejaba de contestar sin razón aparente"). Ahora, si algo se rompe acá, igual se le
-        # manda un aviso -- mejor eso que un silencio sin explicación.
-        logger.exception(f"Conversación {conversation_id}: fallo inesperado generando/enviando "
-                          f"la respuesta -- se avisa al cliente en vez de dejarlo en silencio.")
+    ultimo_error = None
+    exito = False
+    for intento in range(1, 4):
+        algo_enviado = False
         try:
-            await send_message(conversation_id, (
-                "Disculpa, tuve un problema técnico para procesar tu mensaje. ¿Podrías intentar "
-                "de nuevo en un momento? Si prefieres, puedo derivarte con un asesor humano."
-            ))
-        except Exception:
-            logger.exception(f"Conversación {conversation_id}: tampoco se pudo mandar el aviso de "
-                              f"problema técnico.")
+            history = _map_history(history_raw)
+
+            batch_turns = []
+            kinds = []
+            for m in batch:
+                content, kind = await build_message_content(m)
+                batch_turns.append({"role": "user", "content": content})
+                kinds.append(kind)
+
+            notas_sistema = [{"role": "system", "content": build_camila_availability_note()}]
+            if not history_raw:
+                # Primer intercambio real de la conversación -> se sugiere un saludo elegido al azar
+                # por código (ver _SALUDOS_INICIALES), no queda en manos del modelo variar solo.
+                saludo = _elegir_saludo_inicial()
+                notas_sistema.append({
+                    "role": "system",
+                    "content": (
+                        f"[Nota interna, no la muestres tal cual] Para el saludo de este primer mensaje, "
+                        f"usá esta variante (podés ajustarla livianamente al contexto, pero no la "
+                        f"cambies por otra completamente distinta — es importante que no siempre sea la "
+                        f"misma frase, ver sección 17): \"{saludo}\""
+                    ),
+                })
+
+            messages = (
+                [{"role": "system", "content": SYSTEM_PROMPT}]
+                + notas_sistema
+                + history
+                + batch_turns
+            )
+            reply = await call_openrouter(messages)
+
+            # El modelo puede marcar que el tema quedó cerrado y no corresponde programar un
+            # seguimiento automático después de esta respuesta (ver NOTA TÉCNICA en el SYSTEM_PROMPT).
+            close_followups = FOLLOWUP_CLOSE_MARKER in reply
+            reply = reply.replace(FOLLOWUP_CLOSE_MARKER, "").strip()
+
+            # Corrección de un dato después de derivar (ver sección 49.2 del SYSTEM_PROMPT y
+            # _corregir_dato_sheets): el modelo puede agregar una o más marcas [CORRECCION_DATO ...] al
+            # final de su respuesta -- nunca se le muestran al cliente, acá se sacan del texto y se
+            # procesan aparte. Protegido con asyncio.shield por el mismo motivo que el registro de
+            # fichas más abajo: si esta tarea se cancela a mitad de camino (llegó un mensaje nuevo del
+            # cliente mientras tanto), no queremos perder una corrección a mitad de aplicar.
+            correcciones = CORRECCION_DATO_RE.findall(reply)
+            reply = CORRECCION_DATO_RE.sub("", reply).strip()
+            if correcciones:
+                async def _aplicar_correcciones():
+                    telefono = await _get_contact_phone(conversation_id)
+                    for campo, valor in correcciones:
+                        ok = await _corregir_dato_sheets(telefono, campo, valor)
+                        if not ok:
+                            logger.error(f"Conversación {conversation_id}: no se pudo aplicar la "
+                                         f"corrección de {campo!r} -> {valor!r} en Sheets.")
+                try:
+                    await asyncio.shield(_aplicar_correcciones())
+                except asyncio.CancelledError:
+                    logger.info(f"Conversación {conversation_id}: cancelación durante la corrección de "
+                                f"datos, protegida con shield, se dejó terminar igual.")
+                    raise
+
+            bubbles = split_into_bubbles(reply)
+            bubbles = [b2 for b in bubbles for b2 in _separar_ficha_de_burbuja(b)]
+            logger.info(f"Conversación {conversation_id}: agrupé {len(batch)} mensaje(s) entrante(s) "
+                        f"({', '.join(kinds)}) y respondo en {len(bubbles)} burbuja(s) "
+                        f"(cierra_seguimiento={close_followups}): {reply[:200]!r}")
+
+            for bubble in bubbles:
+                # La ficha de datos ("Hola Camila, quiero avanzar...") ya NO se le manda al cliente
+                # como mensaje real -- a pedido explícito, se cambió el flujo para que el cliente ya
+                # no tenga que copiar/reenviar nada (sección 49/53). El modelo la sigue generando igual
+                # porque el texto se parsea más abajo para registrar la venta en Sheets (ver
+                # fichas_encontradas), pero eso se hace en memoria a partir de "bubbles"/"reply" --
+                # no hace falta que quede guardada como mensaje en Chatwoot para nada. A pedido
+                # explícito (18/09/2026: "se esta mandando el mensaje anterior tamb pero con un
+                # candado... se puede sacar?") se dejó de mandar del todo, ni siquiera como nota
+                # privada -- antes se mandaba con private=True (aparecía con el ícono de candado en
+                # Chatwoot) solo como referencia visual, pero no cumplía ninguna función real.
+                if "Hola Camila, quiero avanzar" in bubble:
+                    continue
+                await send_message(conversation_id, bubble, private=False)
+                algo_enviado = True
+
+            exito = True
+            break
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            ultimo_error = e
+            logger.error(f"Conversación {conversation_id}: fallo en el intento {intento}/3 "
+                         f"generando/enviando la respuesta: {e}")
+            if algo_enviado:
+                # Ya se alcanzó a mandar al menos una burbuja -- no reintentar desde cero acá
+                # (generaría una respuesta nueva y la mandaría de nuevo, duplicando o
+                # contradiciendo lo que el cliente ya recibió). Se corta y se avisa al dueño.
+                logger.error(f"Conversación {conversation_id}: la falla fue después de mandar al "
+                             f"menos una burbuja -- no se reintenta desde cero para no duplicar.")
+                break
+            if intento < 3:
+                await asyncio.sleep(3 * intento)
+
+    if not exito:
+        # A pedido explícito (17/09/2026): "si hay un fallo, que vuelva a pensar y genere una
+        # respuesta acorde" -- NO un mensaje genérico de disculpa. Se había probado mandar ese
+        # mensaje ante cualquier falla y se sacó: un cliente en el momento de más intención de
+        # la charla, recibiendo un "tuve un problema técnico" en vez de una respuesta real, se
+        # siente peor que nada -- y ya veníamos perdiendo ventas por conversaciones que el bot
+        # dejaba sin contestar (caso real: conv 723, +5493583415031, el cliente esperó 17
+        # minutos hasta que alguien del equipo le contestó a mano). Ahora se reintenta hasta 3
+        # veces una respuesta real antes de rendirse, y si se agotan los intentos, se avisa al
+        # DUEÑO (no al cliente) para que un humano pueda intervenir -- igual que se hacía antes
+        # a mano.
+        logger.error(f"Conversación {conversation_id}: se agotaron los 3 intentos sin poder "
+                     f"completar la respuesta. Último error: {ultimo_error}")
+        await _avisar_fallo_respuesta(conversation_id, str(ultimo_error))
         return
 
     # Si el mensaje incluye la ficha de datos (el arranque exacto de la plantilla), es un
