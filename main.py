@@ -3334,6 +3334,40 @@ def _split_planes(texto: str) -> list:
     return [p.strip() for p in partes if p.strip()]
 
 
+async def _pares_numero_telefono_existentes() -> set:
+    """Lee las columnas S (NUMERO A PORTAR) y T (NUMERO DE CONTACTO) de todo el Sheet y arma el
+    set de pares (número, teléfono) ya cargados, comparando solo dígitos (para no fallar por
+    formato: con o sin '+', espacios, etc.). Se usa para no duplicar una fila que ya existe (ver
+    log_to_google_sheets). Si falla la lectura, devuelve un set vacío (no bloquea la carga por
+    un problema de red puntual -- prefiere el riesgo chico de una fila duplicada al de perder
+    una venta real por no poder chequear)."""
+    if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
+        return set()
+    token = await _get_sheets_access_token()
+    if not token:
+        return set()
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!S:T", safe="")
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
+        f"/values/{encoded_range}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp.raise_for_status()
+            filas = resp.json().get("values", []) or []
+    except Exception as e:
+        logger.error(f"No se pudo leer S:T de Sheets para chequear duplicados: {e}")
+        return set()
+
+    pares = set()
+    for fila in filas[1:]:  # salta el header
+        numero = fila[0] if len(fila) > 0 else ""
+        telefono = fila[1] if len(fila) > 1 else ""
+        pares.add((_digits_only(numero), _digits_only(telefono)))
+    return pares
+
+
 async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
                                  foto_dni_frente: str = "", foto_dni_dorso: str = "") -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
@@ -3371,6 +3405,15 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
         return
 
+    # Chequeo de duplicados (17/09/2026, caso real: Patricia Susana Deheza quedó cargada DOS
+    # veces, 6 filas para 3 números -- una carrera entre dos webhooks casi simultáneos, cada uno
+    # generando y registrando su propia ficha completa). Antes de agregar cada fila, se chequea
+    # si YA existe una fila con el mismo (número a portar, número de contacto) -- si existe, se
+    # saltea esa fila puntual en vez de duplicarla. No bloquea por conversación entera (eso
+    # rompería el caso legítimo de una segunda línea agregada más tarde en la misma charla), solo
+    # evita repetir la MISMA línea ya cargada.
+    ya_cargados = await _pares_numero_telefono_existentes()
+
     foto_frente = f'=HYPERLINK("{foto_dni_frente}";"Ver foto DNI")' if foto_dni_frente else ""
     foto_dorso = f'=HYPERLINK("{foto_dni_dorso}";"Ver foto DNI (dorso)")' if foto_dni_dorso else ""
     # El "'" al principio fuerza a Sheets a guardarlo como texto literal en vez de interpretar
@@ -3396,6 +3439,12 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     es_linea_nueva = "nueva" in campos.get("Tipo de portabilidad", "").lower()
 
     for i, numero in enumerate(numeros):
+        clave = (_digits_only(numero), _digits_only(telefono))
+        if clave in ya_cargados:
+            logger.warning(f"log_to_google_sheets: se saltea la fila de {campos.get('Nombre', '')!r} "
+                            f"(número {numero!r}, teléfono {telefono!r}) -- ya existe una fila "
+                            f"igual en el Sheet, no se duplica.")
+            continue
         plan_fila = plan_por_numero[i] if plan_por_numero else campos.get("Plan elegido", "")
         row = [
             "",  # Estado (lo completa el equipo)
