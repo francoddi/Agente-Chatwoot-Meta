@@ -3445,7 +3445,7 @@ def split_into_bubbles(text: str) -> list:
 def _separar_ficha_de_burbuja(bubble: str) -> list:
     """Red de seguridad: si el modelo no puso "---" entre el mensaje de handoff (el que sí le
     llega al cliente) y la ficha interna, quedan mezclados en una sola burbuja -- y como esa
-    burbuja contiene el marcador de la ficha, se manda ENTERA como nota privada (ver es_ficha en
+    burbuja contiene el marcador de la ficha, se saltea ENTERA sin mandarse (ver
     process_conversation/send_followup_if_needed), perdiendo el mensaje real con el link a
     Camila. Si el marcador aparece con texto antes, separa esa parte como burbuja pública."""
     marker = "Hola Camila, quiero avanzar"
@@ -3641,11 +3641,12 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
                 f"{len(bubbles)} burbuja(s): {reply[:200]!r}")
 
     for bubble in bubbles:
-        # Mismo criterio que en process_conversation: la ficha nunca se manda como mensaje
-        # real al cliente, queda como nota interna.
-        es_ficha = "Hola Camila, quiero avanzar" in bubble
+        # Mismo criterio que en process_conversation: la ficha no se manda para nada, ni al
+        # cliente ni como nota interna (ver el comentario largo ahí).
+        if "Hola Camila, quiero avanzar" in bubble:
+            continue
         try:
-            await send_message(conversation_id, bubble, private=es_ficha)
+            await send_message(conversation_id, bubble, private=False)
         except Exception as e:
             logger.error(f"Error enviando seguimiento a la conversación {conversation_id}: {e}")
             break
@@ -3795,12 +3796,17 @@ async def process_conversation(conversation_id: int) -> None:
         # La ficha de datos ("Hola Camila, quiero avanzar...") ya NO se le manda al cliente
         # como mensaje real -- a pedido explícito, se cambió el flujo para que el cliente ya
         # no tenga que copiar/reenviar nada (sección 49/53). El modelo la sigue generando igual
-        # (la necesitamos para registrar la venta en Sheets, ver más abajo), pero acá se manda
-        # como NOTA INTERNA (private=True) en vez de mensaje saliente real: queda guardada en
-        # Chatwoot para referencia, pero no le llega nada por WhatsApp al cliente.
-        es_ficha = "Hola Camila, quiero avanzar" in bubble
+        # porque el texto se parsea más abajo para registrar la venta en Sheets (ver
+        # fichas_encontradas), pero eso se hace en memoria a partir de "bubbles"/"reply" --
+        # no hace falta que quede guardada como mensaje en Chatwoot para nada. A pedido
+        # explícito (18/09/2026: "se esta mandando el mensaje anterior tamb pero con un
+        # candado... se puede sacar?") se dejó de mandar del todo, ni siquiera como nota
+        # privada -- antes se mandaba con private=True (aparecía con el ícono de candado en
+        # Chatwoot) solo como referencia visual, pero no cumplía ninguna función real.
+        if "Hola Camila, quiero avanzar" in bubble:
+            continue
         try:
-            await send_message(conversation_id, bubble, private=es_ficha)
+            await send_message(conversation_id, bubble, private=False)
         except Exception as e:
             logger.error(f"Error enviando una burbuja a la conversación {conversation_id}: {e}")
             break
