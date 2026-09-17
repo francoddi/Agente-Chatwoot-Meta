@@ -1813,6 +1813,49 @@ borrosa, de un mensaje cortado, lo que sea), aplicá la regla de "NO incluir cam
 sacás esa línea entera de la ficha, no la dejás con un corchete.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+49.2 CORRECCIÓN DE UN DATO DESPUÉS DE DERIVAR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CASO REAL QUE NO PUEDE VOLVER A PASAR: un cliente ya derivado (ya generaste la ficha antes,
+en ESTA MISMA conversación — fijate si en el historial aparece "Hola Camila, quiero avanzar")
+avisó que se había equivocado en un dato ("me confundí en el código postal"). El bot contestó
+"ok no pasa nada" — pero en los hechos no se corrigió nada, el dato mal quedó así en el
+registro para siempre. Eso está mal: le confirmaste algo al cliente que no era cierto.
+
+Si el checklist YA se completó y YA generaste la ficha antes en esta conversación, y el cliente
+ahora te avisa que un dato estaba mal, o te pasa una corrección:
+
+1. Respondele con naturalidad confirmando que SÍ lo corregís (no digas "ok no pasa nada" sin
+   más — variá la frase, pero que quede claro que la corrección se aplicó de verdad).
+2. Agregá, al final de tu respuesta (después de todo lo demás, en su propia línea), esta marca
+   exacta — el cliente NUNCA la ve, el sistema la usa para corregir el dato en el registro:
+
+[CORRECCION_DATO campo="NOMBRE_DEL_CAMPO" valor="VALOR_NUEVO"]
+
+Usá EXACTAMENTE uno de estos nombres de campo (tienen que coincidir letra por letra, con
+mayúsculas y tildes):
+
+Nombre, DNI, CUIT, Fecha de nacimiento, Email, Provincia, Localidad, Dirección, Código postal,
+Número a portar, Plan elegido
+
+Ejemplo:
+
+CLIENTE:
+"che, me confundí, el código postal es 1888 no 1880"
+
+RESPUESTA:
+"ahí quedó corregido a 1888, gracias por avisarme!
+
+[CORRECCION_DATO campo="Código postal" valor="1888"]"
+
+Si son VARIOS datos corregidos a la vez, poné una marca por cada uno, cada una en su propia
+línea.
+
+Si el checklist TODAVÍA NO se completó (no derivaste todavía en esta conversación), NO uses
+esta marca — ahí un dato corregido se usa directo para la ficha que vas a generar más
+adelante, no hace falta nada especial, es una corrección normal de la charla.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 50. FICHA INTERNA (YA NO SE LE MANDA AL CLIENTE) — CONSUMIDOR FINAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -2608,6 +2651,26 @@ FOLLOWUP_DELAY_MIN_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MIN_SECONDS", "2700
 FOLLOWUP_DELAY_MAX_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MAX_SECONDS", "3600"))  # 60 min
 FOLLOWUP_CLOSE_MARKER = "[FIN_SEGUIMIENTO]"
 
+# Corrección de un dato después de derivar (ver sección 49.2 del SYSTEM_PROMPT): si el cliente
+# avisa un error en un dato DESPUÉS de que ya se generó la ficha (la fila ya existe en Sheets),
+# el modelo agrega esta marca al final de su respuesta para que el sistema corrija la celda
+# puntual en vez de dejar el dato mal para siempre (caso real: cliente avisó que se confundió
+# el código postal, el bot dijo "ok no pasa nada" pero nunca se corrigió nada en Sheets).
+CORRECCION_DATO_RE = re.compile(r'\[CORRECCION_DATO campo="([^"]+)" valor="([^"]+)"\]')
+_CAMPO_A_COLUMNA_SHEETS = {
+    "Nombre": "E",
+    "DNI": "F",
+    "CUIT": "F",
+    "Fecha de nacimiento": "G",
+    "Email": "J",
+    "Provincia": "M",
+    "Localidad": "N",
+    "Dirección": "O",
+    "Código postal": "R",
+    "Número a portar": "S",
+    "Plan elegido": "U",
+}
+
 # Resumen diario (opcional): a la hora configurada (huso Argentina), le manda al número del
 # dueño un WhatsApp con cuántos leads llegaron ese día, cuántos se derivaron y el % de
 # conversión. Vacío NUMERO_DUENO = deshabilitado. Mismo requisito que con Camila: ese número
@@ -3011,6 +3074,75 @@ async def append_google_sheets_row(row: list, intentos: int = 3):
     return None
 
 
+async def _corregir_dato_sheets(telefono: str, campo: str, valor: str) -> bool:
+    """Corrige UN dato puntual en la fila ya cargada en Sheets de este cliente, en vez de
+    agregar una fila nueva o dejar el dato mal. Busca en la columna T (NUMERO DE CONTACTO) la
+    coincidencia más reciente (de abajo hacia arriba, por si el mismo teléfono aparece más de
+    una vez) y pisa solo la celda correspondiente al campo. Se usa cuando el cliente avisa un
+    error DESPUÉS de haber sido derivado (ver sección 49.2 del SYSTEM_PROMPT) -- antes de esto,
+    un caso real de corrección post-derivación se respondía "ok no pasa nada" pero no cambiaba
+    nada en Sheets. Devuelve True si se pudo corregir."""
+    columna = _CAMPO_A_COLUMNA_SHEETS.get(campo)
+    if not columna:
+        logger.warning(f"Corrección de Sheets pedida para un campo no reconocido: {campo!r}")
+        return False
+    if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
+        return False
+
+    token = await _get_sheets_access_token()
+    if not token:
+        logger.error("No se pudo obtener un token de Google Sheets; no se corrigió el dato.")
+        return False
+
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!T:T", safe="")
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
+        f"/values/{encoded_range}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp.raise_for_status()
+            columna_telefonos = resp.json().get("values", []) or []
+    except Exception as e:
+        logger.error(f"No se pudo leer la columna de teléfonos de Sheets para corregir un dato: {e}")
+        return False
+
+    fila_encontrada = None
+    for idx in range(len(columna_telefonos) - 1, 0, -1):  # de abajo hacia arriba, salta el header (fila 0)
+        valor_celda = columna_telefonos[idx][0] if columna_telefonos[idx] else ""
+        if _mismo_telefono(valor_celda, telefono):
+            fila_encontrada = idx + 1  # 1-indexed para la API de Sheets
+            break
+
+    if fila_encontrada is None:
+        logger.warning(f"No se encontró fila en Sheets para corregir el dato de {telefono!r} (campo {campo!r}).")
+        return False
+
+    # Mismo truco que en log_to_google_sheets: forzar texto para que Sheets no reinterprete una
+    # fecha como número de serie interno.
+    valor_celda_nueva = f"'{valor}" if campo == "Fecha de nacimiento" else valor
+    encoded_cell = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!{columna}{fila_encontrada}", safe="")
+    update_url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
+        f"/values/{encoded_cell}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.put(
+                update_url,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"valueInputOption": "USER_ENTERED"},
+                json={"values": [[valor_celda_nueva]]},
+            )
+            resp.raise_for_status()
+        logger.info(f"Corregido en Sheets: fila {fila_encontrada}, columna {columna} ({campo}) -> {valor!r}")
+        return True
+    except Exception as e:
+        logger.error(f"No se pudo corregir el dato en Sheets (fila {fila_encontrada}, columna {columna}): {e}")
+        return False
+
+
 async def _forzar_links_visibles(updated_range: str) -> None:
     """Fuerza el formato "LINKED" (clickeable, subrayado) en las columnas H e I (Foto DNI /
     Foto DNI dorso) de la fila recién agregada.
@@ -3294,10 +3426,8 @@ def _map_history(messages: list) -> list:
 async def send_message(conversation_id, content: str, private: bool = False):
     """Crea un mensaje en Chatwoot. Si private=False (default), Chatwoot lo entrega por
     WhatsApp normalmente. Si private=True, queda como nota interna SOLO visible en Chatwoot —
-    no le llega nada al cliente por WhatsApp. Se usa para la ficha de datos que antes se le
-    mandaba al cliente para reenviar a Camila (ver sección 49): ahora se sigue generando igual
-    para que el sistema registre la venta (Sheets), pero como nota interna, no como mensaje
-    real — el cliente ya no tiene que copiar/reenviar nada."""
+    no le llega nada al cliente por WhatsApp (ya no se usa para la ficha de datos, que
+    directamente no se manda más -- ver el comentario en process_conversation)."""
     url = f"{_chatwoot_base(conversation_id)}/messages"
     body = {"content": content, "message_type": "outgoing", "private": private}
     try:
@@ -3794,6 +3924,29 @@ async def process_conversation(conversation_id: int) -> None:
     # seguimiento automático después de esta respuesta (ver NOTA TÉCNICA en el SYSTEM_PROMPT).
     close_followups = FOLLOWUP_CLOSE_MARKER in reply
     reply = reply.replace(FOLLOWUP_CLOSE_MARKER, "").strip()
+
+    # Corrección de un dato después de derivar (ver sección 49.2 del SYSTEM_PROMPT y
+    # _corregir_dato_sheets): el modelo puede agregar una o más marcas [CORRECCION_DATO ...] al
+    # final de su respuesta -- nunca se le muestran al cliente, acá se sacan del texto y se
+    # procesan aparte. Protegido con asyncio.shield por el mismo motivo que el registro de
+    # fichas más abajo: si esta tarea se cancela a mitad de camino (llegó un mensaje nuevo del
+    # cliente mientras tanto), no queremos perder una corrección a mitad de aplicar.
+    correcciones = CORRECCION_DATO_RE.findall(reply)
+    reply = CORRECCION_DATO_RE.sub("", reply).strip()
+    if correcciones:
+        async def _aplicar_correcciones():
+            telefono = await _get_contact_phone(conversation_id)
+            for campo, valor in correcciones:
+                ok = await _corregir_dato_sheets(telefono, campo, valor)
+                if not ok:
+                    logger.error(f"Conversación {conversation_id}: no se pudo aplicar la "
+                                 f"corrección de {campo!r} -> {valor!r} en Sheets.")
+        try:
+            await asyncio.shield(_aplicar_correcciones())
+        except asyncio.CancelledError:
+            logger.info(f"Conversación {conversation_id}: cancelación durante la corrección de "
+                        f"datos, protegida con shield, se dejó terminar igual.")
+            raise
 
     bubbles = split_into_bubbles(reply)
     bubbles = [b2 for b in bubbles for b2 in _separar_ficha_de_burbuja(b)]
