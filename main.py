@@ -3631,7 +3631,15 @@ def _separar_ficha_de_burbuja(bubble: str) -> list:
 async def call_openrouter(messages: list, intentos: int = 3) -> str:
     """Llama a OpenRouter. A veces el modelo devuelve content=null con finish_reason="stop"
     (glitch observado con Gemini vía OpenRouter, sin relación con errores HTTP) — se reintenta
-    unas pocas veces antes de resignarse, para no dejar al cliente sin respuesta por eso."""
+    unas pocas veces antes de resignarse.
+
+    Si se agotan los intentos, LEVANTA una excepción en vez de devolver un texto de disculpa
+    enlatado (antes devolvía ese texto como si fuera una respuesta real, y process_conversation
+    lo mandaba tal cual al cliente -- a pedido explícito: "no mandes eso, prefiero que no mandes
+    nada, si hay un fallo que vuelva a pensar y genere una respuesta acorde". Levantar la
+    excepción hace que el loop de reintentos de process_conversation la trate como cualquier
+    otra falla: reintenta el turno completo desde cero en vez de "tener éxito" mandando la
+    disculpa enlatada."""
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -3658,10 +3666,7 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
             logger.error(f"Error llamando a OpenRouter (intento {intento}/{intentos}): {e}")
 
     logger.error(f"OpenRouter no devolvió contenido útil tras {intentos} intentos. Último error: {ultimo_error}")
-    return (
-        "Disculpa, tuve un problema técnico para procesar tu mensaje. ¿Podrías intentar de "
-        "nuevo en un momento? Si prefieres, puedo derivarte con un asesor humano."
-    )
+    raise RuntimeError(f"OpenRouter no devolvió contenido útil tras {intentos} intentos: {ultimo_error}")
 
 
 # --------------------------------------------------------------------------------------
