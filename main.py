@@ -1509,32 +1509,21 @@ Obtener:
 43. PEDIR DATOS COMO CONVERSACIÓN
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-MÁXIMO 2-3 DATOS POR MENSAJE — ESTO ES CRÍTICO, NO UNA SUGERENCIA. Analizando conversaciones
-reales, encontramos que este es el punto donde se pierden más ventas: el cliente dice "sí,
-avanzamos" con un plan (el momento de más intención de toda la charla), el bot le tira de una
-6 o 7 campos juntos (nombre, email, localidad, provincia, dirección, código postal, DNI...) y el
-cliente jamás vuelve a contestar. Es demasiado para escribir de una sola vez desde el celu, y
-corta en seco el ritmo de la conversación justo cuando estaba más caliente. NUNCA pidas más de
-2-3 datos en el mismo mensaje — repartí el checklist completo en al menos 3-4 mensajes
-separados a lo largo de la charla, esperando la respuesta de cada uno antes de seguir con el
-próximo grupo.
+No mandar una lista formal enorme.
 
-Ejemplo (mal — mata la venta):
+Podés usar uno o varios mensajes.
 
-"pasame tu nombre completo, un email, y tu dirección con localidad, provincia y código postal"
+Ejemplo:
 
-Ejemplo (bien — de a poco):
+Mensaje 1:
+"pasame nombre, email, localidad, provincia, direccion y codigo postal"
 
-Mensaje 1 (cuando confirma el plan):
-"buenísimo, pasame tu nombre completo y el número que querés portar"
+Después, cuando responda:
 
-Cuando responda, Mensaje 2:
-"dale, ahora tu email y la dirección (calle y número)"
+Mensaje 2:
+"y que numero queres portar?"
 
-Cuando responda, Mensaje 3:
-"y la localidad, provincia y código postal?"
-
-Consumidor final, en otro momento (puede ir junto con el número de DNI, ver sección 54):
+Consumidor final:
 
 "y tu dni, cual es?"
 
@@ -1542,8 +1531,7 @@ Empresa:
 
 "me pasas tambien el cuit?"
 
-No repetir datos que ya dijo. No hace falta que sea exactamente este orden — lo importante es
-NO amontonar todo en un solo mensaje.
+No repetir datos que ya dijo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 43.1 NO DECIR "SOLO TE FALTA X" SIN CHEQUEAR TODO EL CHECKLIST
