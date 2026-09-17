@@ -20,6 +20,7 @@ import logging
 import os
 import random
 import re
+import time
 from datetime import date
 from datetime import datetime
 from datetime import time as dtime
@@ -2723,6 +2724,13 @@ async def _iniciar_resumen_diario():
     asyncio.create_task(_resumen_diario_loop())
 
 
+@app.on_event("startup")
+async def _iniciar_barrido_pendientes():
+    """Arranca el barrido periódico de conversaciones sin responder (ver la sección grande de
+    comentarios arriba de _barrido_pendientes_loop)."""
+    asyncio.create_task(_barrido_pendientes_loop())
+
+
 def _chatwoot_base(conversation_id) -> str:
     return f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/{conversation_id}"
 
@@ -3728,6 +3736,98 @@ async def _process_after_delay(conversation_id: int, wait_seconds: float) -> Non
     finally:
         if _pending_tasks.get(conversation_id) is asyncio.current_task():
             _pending_tasks.pop(conversation_id, None)
+
+
+# --------------------------------------------------------------------------------------
+# Barrido periódico de conversaciones sin responder (17/09/2026, a pedido explícito tras varios
+# casos reales de clientes que se quedaron sin ninguna respuesta del bot -- ver
+# process_conversation). Los reintentos de process_conversation cubren fallas DURANTE el
+# procesamiento, pero no cubren el caso de que el webhook de Chatwoot nunca haya llegado a
+# activar nada (ej: el servidor estaba reiniciando por un redeploy justo en ese momento). Esta
+# es la red de seguridad final: cada BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS revisa TODAS las
+# conversaciones abiertas y, si encuentra alguna donde el último mensaje real sea del cliente
+# sin ninguna respuesta después, la procesa -- sin importar la causa puntual de por qué se
+# quedó sin contestar.
+# --------------------------------------------------------------------------------------
+BARRIDO_PENDIENTES_ENABLED = os.getenv("BARRIDO_PENDIENTES_ENABLED", "true").lower() == "true"
+BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS = float(os.getenv("BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS", "300"))
+
+
+async def _barrido_pendientes_loop() -> None:
+    if not BARRIDO_PENDIENTES_ENABLED:
+        return
+    while True:
+        try:
+            await asyncio.sleep(BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS)
+            await _revisar_conversaciones_sin_responder()
+        except Exception:
+            logger.exception("Error en el barrido periódico de conversaciones sin responder.")
+
+
+BARRIDO_PENDIENTES_MAX_HORAS = float(os.getenv("BARRIDO_PENDIENTES_MAX_HORAS", "6"))
+
+
+async def _revisar_conversaciones_sin_responder() -> None:
+    """Recorre las conversaciones abiertas (de todos los inboxes) buscando alguna donde el
+    último mensaje real sea del cliente sin respuesta -- si la encuentra, la reprograma con el
+    mismo mecanismo que usa el webhook normal (schedule_conversation_processing), así se
+    beneficia de los mismos reintentos y protecciones. No duplica una conversación que ya se
+    esté procesando en este momento (chequea _pending_tasks antes de reprogramar).
+
+    Dos filtros para no ser demasiado agresivo:
+    - can_reply=False (pasaron más de 24hs desde que el cliente escribió, Meta ya no deja
+      mandarle mensaje libre) se saltea -- si no, cada corrida de este loop reintentaría en vano
+      y le mandaría un aviso nuevo al dueño cada BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS para
+      siempre por el mismo caso (ver _avisar_fallo_respuesta).
+    - Solo mira mensajes de las últimas BARRIDO_PENDIENTES_MAX_HORAS -- esto es una red de
+      seguridad para fallas recientes (ej: un redeploy), no para "resucitar" charlas viejas
+      donde el cliente mandó un "gracias" hace varios días y no hacía falta contestar nada.
+    """
+    url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
+    limite = time.time() - BARRIDO_PENDIENTES_MAX_HORAS * 3600
+    encontradas = 0
+    page = 1
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.get(url, headers=_chatwoot_headers(),
+                                         params={"status": "open", "page": page})
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as e:
+            logger.error(f"Barrido de pendientes: no se pudo traer la página {page} de "
+                         f"conversaciones abiertas: {e}")
+            break
+        payload = data.get("data", {}).get("payload", []) or []
+        if not payload:
+            break
+        for c in payload:
+            labels = c.get("labels") or []
+            if PAUSE_LABEL in labels:
+                continue
+            if c.get("can_reply") is False:
+                continue
+            last = c.get("last_non_activity_message") or {}
+            if last.get("message_type") != 0 or last.get("private"):
+                continue  # el último mensaje real ya es del bot, o no hay ninguno -- nada pendiente
+            if (last.get("created_at") or 0) < limite:
+                continue  # muy viejo, no es un caso reciente sin responder
+            conversation_id = c.get("id")
+            if not conversation_id:
+                continue
+            existing = _pending_tasks.get(conversation_id)
+            if existing and not existing.done():
+                continue  # ya se está procesando ahora mismo por el camino normal, no duplicar
+            encontradas += 1
+            logger.warning(f"Barrido de pendientes: conversación {conversation_id} tenía un "
+                            f"mensaje del cliente sin responder -- se reprograma.")
+            schedule_conversation_processing(conversation_id)
+        page += 1
+        if page > 30:
+            break
+    if encontradas:
+        logger.warning(f"Barrido de pendientes: se encontraron y reprogramaron {encontradas} "
+                        f"conversación(es) sin responder.")
 
 
 # --------------------------------------------------------------------------------------
