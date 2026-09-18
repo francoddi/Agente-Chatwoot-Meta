@@ -3815,6 +3815,12 @@ async def _barrido_pendientes_loop() -> None:
 
 BARRIDO_PENDIENTES_MAX_HORAS = float(os.getenv("BARRIDO_PENDIENTES_MAX_HORAS", "6"))
 
+# Conversaciones ya avisadas por el "caso 2" (derivada sin etiqueta, ver más abajo) -- para no
+# mandar el mismo aviso al dueño cada BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS para siempre por el
+# mismo caso. Vive en memoria (se resetea si el proceso reinicia), es aceptable: en el peor caso
+# se manda un aviso de más después de un reinicio, no se pierde ninguno.
+_derivaciones_alertadas: set = set()
+
 
 async def _revisar_conversaciones_sin_responder() -> None:
     """Recorre las conversaciones abiertas (de todos los inboxes) buscando alguna donde el
@@ -3854,23 +3860,42 @@ async def _revisar_conversaciones_sin_responder() -> None:
             labels = c.get("labels") or []
             if PAUSE_LABEL in labels:
                 continue
-            if c.get("can_reply") is False:
-                continue
-            last = c.get("last_non_activity_message") or {}
-            if last.get("message_type") != 0 or last.get("private"):
-                continue  # el último mensaje real ya es del bot, o no hay ninguno -- nada pendiente
-            if (last.get("created_at") or 0) < limite:
-                continue  # muy viejo, no es un caso reciente sin responder
             conversation_id = c.get("id")
             if not conversation_id:
                 continue
-            existing = _pending_tasks.get(conversation_id)
-            if existing and not existing.done():
-                continue  # ya se está procesando ahora mismo por el camino normal, no duplicar
-            encontradas += 1
-            logger.warning(f"Barrido de pendientes: conversación {conversation_id} tenía un "
-                            f"mensaje del cliente sin responder -- se reprograma.")
-            schedule_conversation_processing(conversation_id)
+            last = c.get("last_non_activity_message") or {}
+
+            # Caso 1: el cliente escribió y nadie contestó (ver docstring).
+            if (last.get("message_type") == 0 and not last.get("private")
+                    and c.get("can_reply") is not False
+                    and (last.get("created_at") or 0) >= limite):
+                existing = _pending_tasks.get(conversation_id)
+                if not (existing and not existing.done()):
+                    encontradas += 1
+                    logger.warning(f"Barrido de pendientes: conversación {conversation_id} tenía "
+                                    f"un mensaje del cliente sin responder -- se reprograma.")
+                    schedule_conversation_processing(conversation_id)
+
+            # Caso 2 (18/09/2026, caso real: Muriel Vuotto): el bot mandó la derivación (el
+            # link de Camila) pero la conversación no tiene la etiqueta DERIVADO_LABEL -- señal
+            # de que el registro en Sheets falló y, en el peor de los casos, hasta el aviso al
+            # dueño también falló en mandarse. No intenta reconstruir los datos solo (arriesgado
+            # sin la ficha original) -- solo avisa una vez para que se revise a mano.
+            if (DERIVADO_LABEL not in labels and NUMERO_CAMILA
+                    and last.get("message_type") == 1
+                    and NUMERO_CAMILA in (last.get("content") or "")
+                    and conversation_id not in _derivaciones_alertadas):
+                _derivaciones_alertadas.add(conversation_id)
+                logger.warning(f"Barrido de pendientes: conversación {conversation_id} parece "
+                                f"derivada (el bot mandó el link de Camila) pero no tiene la "
+                                f"etiqueta {DERIVADO_LABEL!r} -- probable falla de registro, se "
+                                f"avisa al dueño.")
+                await _avisar_fallo_respuesta(
+                    conversation_id,
+                    "El bot parece haber derivado al cliente (mandó el link de Camila) pero la "
+                    "conversación no tiene la etiqueta de derivado -- revisar si quedó "
+                    "registrada en Sheets y cargarla a mano si no.",
+                )
         page += 1
         if page > 30:
             break
