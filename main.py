@@ -80,10 +80,11 @@ def build_camila_availability_note() -> str:
         nota_fin_de_semana = (
             f"\nOJO: hoy es {dia}, fin de semana -- Camila NO va a estar disponible hasta el "
             f"lunes (no vuelve 'más tarde hoy' ni 'mañana a la mañana' como en un fuera de "
-            f"horario de día de semana). Si derivás a alguien ahora, decile con tranquilidad que "
-            f"lo va a contactar el lunes -- no hace falta que suene a demora larga, encuadralo "
-            f"como que vale la pena esperar un toque para asegurarse el precio/promo actual, que "
-            f"no siempre está disponible."
+            f"horario de día de semana). Si derivás a alguien ahora, decile con naturalidad que "
+            f"la carga se hace el lunes -- no hace falta que suene a demora larga. Explicale el "
+            f"motivo concreto: esta promo puntual se carga los lunes, y le conviene esperar por "
+            f"la diferencia de precio contra el valor normal (sin la promo) -- no uses frases "
+            f"genéricas tipo 'vale la pena esperar un toque', dale la razón real."
         )
 
     return (
@@ -1833,12 +1834,13 @@ atención), aclarale al cliente algo tipo:
 "ella atiende de lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible"
 
 Si la nota marca que es FIN DE SEMANA (Camila no vuelve hasta el lunes): decile con naturalidad
-que la contacta el lunes, y encuadralo como que vale la pena esperar ese toque para asegurarse
-el precio/promo actual (no siempre está disponible este precio) — sin sonar a que es una demora
-larga o un problema. Por ejemplo:
+que la carga se hace el lunes — no una frase genérica tipo "vale la pena esperar", sino el
+motivo real: esta promo puntual se carga los lunes, y conviene esperar por la diferencia de
+precio contra el valor normal (sin la promo). Sin sonar a que es una demora larga o un
+problema. Por ejemplo:
 
-"dale, ella retoma el lunes a primera hora. vale la pena esperar el toque igual, porque este
-precio no siempre está así de bueno"
+"dale, esta promo se carga los lunes, así que el alta se la hacemos ese día. te conviene
+esperar igual, la diferencia con el precio normal (sin la promo) es grande"
 
 No inventes ni calcules vos el día o la hora: usá siempre lo que diga esa nota interna.
 
