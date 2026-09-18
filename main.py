@@ -2743,15 +2743,15 @@ MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "0"))
 # se programa, para que no sea siempre exactamente el mismo tiempo. El bot puede marcar una
 # respuesta como "tema cerrado" para que no se programe seguimiento después de ella.
 #
-# DESACTIVADO (16/09/2026): WhatsApp restringió la cuenta del negocio por 30 días citando
-# "spam... a través de automatizaciones". Medido en vivo: el seguimiento generaba mensajes
-# automáticos no pedidos al 61% de los leads, y el 91% de esos nunca convertía (la gran mayoría
-# ni siquiera contestaba) -- el patrón clásico que los sistemas de Meta marcan como spam. El
-# beneficio real (~19 ventas rescatadas sobre 398 conversaciones) no compensa el riesgo de que
-# la cuenta quede inhabilitada en vez de restringida. Se puede reactivar poniendo
-# FOLLOWUP_ENABLED=true en el .env si en algún momento se decide retomarlo (por ejemplo, con un
-# alcance más acotado que "cualquier lead que se queda callado").
-FOLLOWUP_ENABLED = os.getenv("FOLLOWUP_ENABLED", "false").lower() == "true"
+# REACTIVADO (18/09/2026, a pedido explícito) con un alcance más acotado que antes: la vez
+# pasada WhatsApp restringió la cuenta por 30 días citando "spam... a través de
+# automatizaciones" -- medido en vivo, el seguimiento le llegaba al 61% de los leads y el 91% de
+# esos nunca convertía (la gran mayoría ni siquiera contestaba), el patrón clásico que Meta
+# marca como spam. Ahora send_followup_if_needed() solo lo manda a leads de intención real
+# (_cliente_confirmo_plan -- ya eligieron un plan y confirmaron que quieren avanzar, el bot ya
+# empezó a pedir datos del checklist), no a cualquiera que se quedó callado -- eso baja mucho el
+# volumen de mensajes automáticos, concentrado donde de verdad hay conversión recuperable.
+FOLLOWUP_ENABLED = os.getenv("FOLLOWUP_ENABLED", "true").lower() == "true"
 FOLLOWUP_DELAY_MIN_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MIN_SECONDS", "2700"))  # 45 min
 FOLLOWUP_DELAY_MAX_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MAX_SECONDS", "3600"))  # 60 min
 FOLLOWUP_CLOSE_MARKER = "[FIN_SEGUIMIENTO]"
@@ -3989,6 +3989,36 @@ async def _revisar_conversaciones_sin_responder() -> None:
 # --------------------------------------------------------------------------------------
 _pending_followups: dict = {}
 
+# Palabras que solo aparecen en mensajes del bot DESPUÉS de que el cliente ya eligió un plan y
+# confirmó que quiere avanzar (secciones 43/44 del SYSTEM_PROMPT -- el checklist de datos recién
+# se pide en ese momento, nunca antes). Se usan como filtro de intención para el seguimiento
+# automático, ver _cliente_confirmo_plan().
+_PALABRAS_CHECKLIST_INICIADO = (
+    "número a portar", "numero a portar", "código postal", "codigo postal",
+    "nombre completo", "dirección completa", "direccion completa",
+    "foto del frente", "foto de tu dni", "frente y dorso",
+)
+
+
+def _cliente_confirmo_plan(messages: list) -> bool:
+    """True si en algún momento de la conversación el bot ya empezó a pedir datos del checklist,
+    o ya llegó a derivar -- eso solo pasa DESPUÉS de que el cliente elige un plan y confirma que
+    quiere avanzar, nunca antes. Se usa como filtro de intención para el seguimiento automático
+    (18/09/2026, a pedido explícito): en vez de mandarle seguimiento a cualquiera que se quedó
+    callado (incluido alguien que solo dijo "hola" y nunca contestó nada más -- bajo valor, alto
+    volumen de mensajes automáticos), solo se le manda a leads con intención real confirmada.
+    Esto baja el volumen total de mensajes automáticos (lo que le importa a la detección de spam
+    de Meta) concentrando el esfuerzo donde de verdad hay conversión recuperable."""
+    for m in messages:
+        if m.get("message_type") != 1 or m.get("private"):
+            continue
+        contenido = (m.get("content") or "").lower()
+        if "hola camila, quiero avanzar" in contenido:
+            return True
+        if any(palabra in contenido for palabra in _PALABRAS_CHECKLIST_INICIADO):
+            return True
+    return False
+
 
 def schedule_followup_check(conversation_id: int) -> None:
     if not FOLLOWUP_ENABLED:
@@ -4049,6 +4079,14 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
     if ultimo.get("message_type") != 1:
         # El cliente ya escribió algo después de nuestra última respuesta: el flujo normal
         # (webhook + debounce) ya se encarga, no hace falta seguimiento.
+        return
+
+    if not _cliente_confirmo_plan(all_messages):
+        logger.info(
+            f"Conversación {conversation_id}: sin seguimiento automático -- el cliente todavía "
+            f"no confirmó un plan (baja intención), se saltea para no mandar mensajes "
+            f"automáticos de más."
+        )
         return
 
     history = _map_history(visibles)
