@@ -62,6 +62,15 @@ CAMILA_HORARIO_DESDE = dtime(8, 0)
 CAMILA_HORARIO_HASTA = dtime(19, 0)
 _DIAS_SEMANA_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
+# Promo puntual de fin de semana (18/09/2026, a pedido explícito): a veces el negocio saca una
+# promo especial que se vende el fin de semana pero se CARGA un lunes puntual -- NO es algo que
+# pase todos los fines de semana ("no sé cuándo vuelve", palabras del dueño), así que NO se
+# autodetecta solo por ser sábado/domingo. Se activa a mano acá con la fecha exacta del lunes en
+# cuestión, y se desactiva (PROMO_CARGA_ESPECIAL_ACTIVA = False) cuando ya no aplica. La próxima
+# vez que vuelva a pasar, actualizar la fecha y volver a poner esto en True.
+PROMO_CARGA_ESPECIAL_ACTIVA = True
+PROMO_CARGA_ESPECIAL_LUNES = date(2026, 9, 21)
+
 
 def build_camila_availability_note() -> str:
     """Nota interna (no se le muestra al cliente) con el día/hora actual en Argentina y si
@@ -77,15 +86,29 @@ def build_camila_availability_note() -> str:
 
     nota_fin_de_semana = ""
     if es_fin_de_semana:
-        nota_fin_de_semana = (
-            f"\nOJO: hoy es {dia}, fin de semana -- Camila NO va a estar disponible hasta el "
-            f"lunes (no vuelve 'más tarde hoy' ni 'mañana a la mañana' como en un fuera de "
-            f"horario de día de semana). Si derivás a alguien ahora, decile con naturalidad que "
-            f"la carga se hace el lunes -- no hace falta que suene a demora larga. Explicale el "
-            f"motivo concreto: esta promo puntual se carga los lunes, y le conviene esperar por "
-            f"la diferencia de precio contra el valor normal (sin la promo) -- no uses frases "
-            f"genéricas tipo 'vale la pena esperar un toque', dale la razón real."
+        promo_esta_semana = (
+            PROMO_CARGA_ESPECIAL_ACTIVA
+            and 0 <= (PROMO_CARGA_ESPECIAL_LUNES - now.date()).days <= 2
         )
+        if promo_esta_semana:
+            fecha_lunes = PROMO_CARGA_ESPECIAL_LUNES.strftime("%d/%m")
+            nota_fin_de_semana = (
+                f"\nOJO: hoy es {dia}, fin de semana -- Camila NO va a estar disponible hasta el "
+                f"lunes {fecha_lunes}. Además, hay una PROMO PUNTUAL activa este fin de semana "
+                f"que se carga específicamente ESE lunes ({fecha_lunes}) -- no digas que 'los "
+                f"lunes se carga' como si fuera todas las semanas, es solo por esta promo "
+                f"puntual. Si derivás a alguien ahora, explicale que la carga es ese lunes "
+                f"puntual, y que conviene esperar por la diferencia de precio contra el valor "
+                f"normal (sin la promo) -- no una frase genérica tipo 'vale la pena esperar un "
+                f"toque', dale la razón real."
+            )
+        else:
+            nota_fin_de_semana = (
+                f"\nOJO: hoy es {dia}, fin de semana -- Camila NO va a estar disponible hasta el "
+                f"lunes (no vuelve 'más tarde hoy' ni 'mañana a la mañana' como en un fuera de "
+                f"horario de día de semana). Si derivás a alguien ahora, decile con naturalidad "
+                f"que la contacta el lunes."
+            )
 
     return (
         f"[Nota interna sobre disponibilidad de Camila — NO se la muestres al cliente tal cual, "
@@ -1833,16 +1856,24 @@ atención), aclarale al cliente algo tipo:
 
 "ella atiende de lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible"
 
-Si la nota marca que es FIN DE SEMANA (Camila no vuelve hasta el lunes): decile con naturalidad
-que la carga se hace el lunes — no una frase genérica tipo "vale la pena esperar", sino el
-motivo real: esta promo puntual se carga los lunes, y conviene esperar por la diferencia de
-precio contra el valor normal (sin la promo). Sin sonar a que es una demora larga o un
-problema. Por ejemplo:
+Si la nota marca que es FIN DE SEMANA, hay dos variantes — fijate cuál te indica la nota:
 
-"dale, esta promo se carga los lunes, así que el alta se la hacemos ese día. te conviene
-esperar igual, la diferencia con el precio normal (sin la promo) es grande"
+- Fin de semana NORMAL (sin promo puntual activa): decile con naturalidad que la contacta el
+  lunes, sin inventar ningún motivo especial. Por ejemplo:
 
-No inventes ni calcules vos el día o la hora: usá siempre lo que diga esa nota interna.
+"dale, ella retoma el lunes y ahí te contacta"
+
+- Fin de semana CON PROMO PUNTUAL activa (la nota te lo va a marcar explícitamente, con la
+  fecha del lunes en cuestión): explicale que ESA carga puntual es ese lunes concreto — nunca
+  digas "los lunes" como si fuera todas las semanas, es una promo específica de ESTE fin de
+  semana — y que conviene esperar por la diferencia de precio contra el valor normal (sin la
+  promo). Por ejemplo:
+
+"dale, esta promo se carga el lunes 21/9, así que el alta se la hacemos ese día puntual. te
+conviene esperar igual, la diferencia con el precio normal (sin la promo) es grande"
+
+No inventes ni calcules vos el día, la fecha, o si hay una promo puntual activa: usá siempre lo
+que diga esa nota interna, tal cual.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 49.1 LOS CORCHETES DE LAS PLANTILLAS SON SOLO PARA VOS — NUNCA VAN EN EL MENSAJE REAL
