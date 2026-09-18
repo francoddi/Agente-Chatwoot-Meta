@@ -71,14 +71,27 @@ def build_camila_availability_note() -> str:
     now = datetime.now(CAMILA_TIMEZONE)
     dia = _DIAS_SEMANA_ES[now.weekday()]
     es_dia_habil = now.weekday() < 5  # 0=lunes ... 4=viernes
+    es_fin_de_semana = now.weekday() >= 5  # 5=sábado, 6=domingo
     en_horario = es_dia_habil and CAMILA_HORARIO_DESDE <= now.time() < CAMILA_HORARIO_HASTA
     disponibilidad = "SÍ, está disponible ahora." if en_horario else "NO está disponible en este momento (fuera de horario)."
+
+    nota_fin_de_semana = ""
+    if es_fin_de_semana:
+        nota_fin_de_semana = (
+            f"\nOJO: hoy es {dia}, fin de semana -- Camila NO va a estar disponible hasta el "
+            f"lunes (no vuelve 'más tarde hoy' ni 'mañana a la mañana' como en un fuera de "
+            f"horario de día de semana). Si derivás a alguien ahora, decile con tranquilidad que "
+            f"lo va a contactar el lunes -- no hace falta que suene a demora larga, encuadralo "
+            f"como que vale la pena esperar un toque para asegurarse el precio/promo actual, que "
+            f"no siempre está disponible."
+        )
 
     return (
         f"[Nota interna sobre disponibilidad de Camila — NO se la muestres al cliente tal cual, "
         f"es solo para que sepas qué decirle al derivarlo]\n"
         f"Ahora mismo, hora Argentina, es {dia} {now.strftime('%H:%M')}hs.\n"
         f"Camila atiende de lunes a viernes de 8 a 19hs. ¿Está disponible ahora? {disponibilidad}"
+        f"{nota_fin_de_semana}"
     )
 
 # Saludos iniciales, para elegir uno al azar POR CÓDIGO (no dejarlo en manos del modelo) --
@@ -1814,9 +1827,18 @@ Si la nota dice que Camila está disponible ahora, agregá algo tipo:
 
 "te contesta en menos de 5 minutos"
 
-Si la nota dice que está fuera de horario, aclarale al cliente algo tipo:
+Si la nota dice que está fuera de horario (día de semana, simplemente pasado el horario de
+atención), aclarale al cliente algo tipo:
 
 "ella atiende de lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible"
+
+Si la nota marca que es FIN DE SEMANA (Camila no vuelve hasta el lunes): decile con naturalidad
+que la contacta el lunes, y encuadralo como que vale la pena esperar ese toque para asegurarse
+el precio/promo actual (no siempre está disponible este precio) — sin sonar a que es una demora
+larga o un problema. Por ejemplo:
+
+"dale, ella retoma el lunes a primera hora. vale la pena esperar el toque igual, porque este
+precio no siempre está así de bueno"
 
 No inventes ni calcules vos el día o la hora: usá siempre lo que diga esa nota interna.
 
