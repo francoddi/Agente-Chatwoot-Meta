@@ -4278,13 +4278,43 @@ async def process_conversation(conversation_id: int) -> None:
             # silencio. Blindar el lote entero (no cada ficha por separado) asegura que, si hay
             # varias fichas en la misma respuesta, una cancelación a mitad de camino no corte
             # antes de llegar a las siguientes.
-            try:
-                await asyncio.shield(_registrar_todas_las_fichas())
-            except asyncio.CancelledError:
-                logger.info(f"Conversación {conversation_id}: la tarea se canceló durante la "
-                            f"derivación (llegó un mensaje nuevo), pero el registro sigue "
-                            f"protegido y va a terminar de todas formas.")
-                raise
+            #
+            # Reintentos + aviso al dueño (18/09/2026, caso real: Muriel Vuotto -- el bot le
+            # mandó bien el mensaje de derivación al cliente, pero el registro en Sheets tiró
+            # una excepción real (no una cancelación) en algún punto y quedó sin loguearse en
+            # ningún lado visible: ni fila en Sheets, ni etiqueta "ddd", ni aviso al dueño. El
+            # bloque de reintentos de más arriba NO cubre esto porque está afuera de él. Ahora
+            # se reintenta hasta 3 veces, y si se agotan, se avisa al dueño -- mismo patrón que
+            # la generación de la respuesta. Reintentar desde cero es seguro aunque alguna ficha
+            # ya se haya registrado en un intento anterior: log_to_google_sheets ya chequea
+            # (número, teléfono) antes de agregar una fila, así que no duplica.
+            ultimo_error_registro = None
+            exito_registro = False
+            for intento_registro in range(1, 4):
+                try:
+                    await asyncio.shield(_registrar_todas_las_fichas())
+                    exito_registro = True
+                    break
+                except asyncio.CancelledError:
+                    logger.info(f"Conversación {conversation_id}: la tarea se canceló durante la "
+                                f"derivación (llegó un mensaje nuevo), pero el registro sigue "
+                                f"protegido y va a terminar de todas formas.")
+                    raise
+                except Exception as e:
+                    ultimo_error_registro = e
+                    logger.error(f"Conversación {conversation_id}: fallo en el intento "
+                                 f"{intento_registro}/3 registrando la derivación en Sheets: {e}")
+                    if intento_registro < 3:
+                        await asyncio.sleep(3 * intento_registro)
+
+            if not exito_registro:
+                logger.error(f"Conversación {conversation_id}: se agotaron los 3 intentos, la "
+                             f"derivación NO quedó registrada en Sheets. Último error: "
+                             f"{ultimo_error_registro}")
+                await _avisar_fallo_respuesta(
+                    conversation_id,
+                    f"Se derivó al cliente pero el registro en Sheets falló: {ultimo_error_registro}",
+                )
 
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
