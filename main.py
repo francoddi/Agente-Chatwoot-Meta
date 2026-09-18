@@ -97,10 +97,12 @@ def build_camila_availability_note() -> str:
                 f"lunes {fecha_lunes}. Además, hay una PROMO PUNTUAL activa este fin de semana "
                 f"que se carga específicamente ESE lunes ({fecha_lunes}) -- no digas que 'los "
                 f"lunes se carga' como si fuera todas las semanas, es solo por esta promo "
-                f"puntual. Si derivás a alguien ahora, explicale que la carga es ese lunes "
-                f"puntual, y que conviene esperar por la diferencia de precio contra el valor "
-                f"normal (sin la promo) -- no una frase genérica tipo 'vale la pena esperar un "
-                f"toque', dale la razón real."
+                f"puntual. Si derivás a alguien ahora, el pedido de escribirle a Camila YA sigue "
+                f"siendo el mismo de siempre (no le digas que espere para escribir) -- lo que se "
+                f"aclara es que ELLA recién puede dar el alta ese lunes puntual. Explicale que "
+                f"conviene esperar ese día por la diferencia de precio contra el valor normal "
+                f"(sin la promo) -- no una frase genérica tipo 'vale la pena esperar un toque', "
+                f"dale la razón real."
             )
         else:
             nota_fin_de_semana = (
@@ -1864,13 +1866,20 @@ Si la nota marca que es FIN DE SEMANA, hay dos variantes — fijate cuál te ind
 "dale, ella retoma el lunes y ahí te contacta"
 
 - Fin de semana CON PROMO PUNTUAL activa (la nota te lo va a marcar explícitamente, con la
-  fecha del lunes en cuestión): explicale que ESA carga puntual es ese lunes concreto — nunca
-  digas "los lunes" como si fuera todas las semanas, es una promo específica de ESTE fin de
-  semana — y que conviene esperar por la diferencia de precio contra el valor normal (sin la
-  promo). Por ejemplo:
+  fecha del lunes en cuestión): el pedido de escribirle a Camila AHORA sigue siendo igual que
+  siempre (sección 49) — no le digas que espere para escribir. Lo que se aclara es que ELLA va a
+  poder dar el alta recién ese lunes puntual (no que el cliente tenga que esperar para
+  escribirle). Nunca digas "los lunes" como si fuera todas las semanas, es una promo específica
+  de ESTE fin de semana. Por ejemplo:
 
-"dale, esta promo se carga el lunes 21/9, así que el alta se la hacemos ese día puntual. te
-conviene esperar igual, la diferencia con el precio normal (sin la promo) es grande"
+Mensaje 1 (igual que siempre):
+"mi jefa se encarga de dar las altas, ya le pasé todos tus datos así que con ella es solo para
+cerrar. escribile ya por acá: {NUMERO_CAMILA}"
+
+Mensaje 2 (la aclaración puntual de este fin de semana):
+"ojo, con esta promo el alta la puede dar recién el lunes 21/9 (es el día que se carga esta
+promo puntual) — pero escribile igual ahora así ya queda todo listo de su lado. vale la pena
+esperar ese día, la diferencia de precio contra el valor normal es grande"
 
 No inventes ni calcules vos el día, la fecha, o si hay una promo puntual activa: usá siempre lo
 que diga esa nota interna, tal cual.
