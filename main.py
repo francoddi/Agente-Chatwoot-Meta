@@ -2094,6 +2094,10 @@ final como un campo más (ver plantillas, secciones 50/52). Si por algún motivo
 leer bien la fecha en la foto (imagen borrosa, DNI viejo sin ese dato visible, etc.), dejá ese
 campo afuera de la ficha en vez de inventarlo.
 
+SI EL CLIENTE MANDA UN PDF con el DNI (escaneado, frente y dorso juntos), lo podés leer: un solo
+PDF con las dos caras cuenta como las dos fotos, no le pidas que las mande de nuevo. Nunca digas
+que recibiste las fotos si no viste el documento en la conversación.
+
 OBLIGATORIA — BLOQUEA EL HANDOFF: la foto (frente y dorso) es un dato obligatorio más del
 checklist, al mismo nivel que el email o la dirección. NO se deriva a Camila (no se genera la
 ficha ni se manda el link) hasta tener las dos fotos.
@@ -3720,6 +3724,31 @@ async def build_image_content(attachment: dict, caption: str):
     return parts
 
 
+async def build_pdf_content(attachment: dict, caption: str):
+    """PDF enviado por el cliente (caso real 19/09/2026: mandó el DNI frente y dorso escaneado
+    en un solo PDF; el bot lo ignoraba, decía "ya recibí las fotos" sin haber visto nada e
+    inventó la fecha de nacimiento). Gemini lee el PDF directo vía OpenRouter."""
+    url = attachment.get("data_url") or attachment.get("file_url")
+    data, _ = await download_attachment(url)
+    if data is None:
+        text = caption or "El cliente envió un archivo PDF."
+        return f"{text}\n\n[No se pudo descargar el PDF enviado por el cliente]"
+    b64 = base64.b64encode(data).decode()
+    guide = (
+        f"El cliente envió un archivo PDF (podría ser su DNI escaneado con frente y dorso, una "
+        f"factura u otro documento relacionado con la portabilidad a Claro). Analizalo y "
+        f"respondé como {BOT_NAME} según lo que el cliente necesite. Si es el DNI, un solo PDF "
+        f"con frente y dorso cuenta como las dos fotos. Si no podés leer bien algún dato, no "
+        f"lo inventes."
+    )
+    parts = [{"type": "text", "text": guide}]
+    if caption:
+        parts.append({"type": "text", "text": f"Texto adjunto del cliente: {caption}"})
+    parts.append({"type": "file", "file": {"filename": "documento.pdf",
+                                            "file_data": f"data:application/pdf;base64,{b64}"}})
+    return parts
+
+
 async def build_audio_content(attachment: dict, caption: str):
     """Decisión de negocio: el bot NO transcribe notas de voz (para evitar errores en datos
     comerciales sensibles, como números de teléfono o direcciones, mal entendidos por el
@@ -3754,8 +3783,13 @@ async def build_message_content(message: dict):
     image_att = next((a for a in attachments if a.get("file_type") == "image"), None)
     audio_att = next((a for a in attachments if a.get("file_type") == "audio"), None)
 
+    pdf_att = next((a for a in attachments if a.get("file_type") == "file"
+                    and (a.get("extension") or "").lower() == "pdf"), None)
+
     if image_att:
         return await build_image_content(image_att, text), "image"
+    if pdf_att:
+        return await build_pdf_content(pdf_att, text), "pdf"
     if audio_att:
         return await build_audio_content(audio_att, text), "audio"
     return (text or "(mensaje vacío)"), "text"
@@ -4166,15 +4200,23 @@ def _extraer_fotos_dni(all_messages: list) -> tuple:
     últimas 2, para no contar una foto reenviada como si fuera una distinta.
     """
     imagenes = []
+    pdfs_dni = []
     vistas = set()
     for m in all_messages:
         if m.get("message_type") != 0 or m.get("private"):
             continue
         for att in m.get("attachments") or []:
-            if att.get("file_type") != "image":
+            es_pdf = (att.get("file_type") == "file"
+                      and (att.get("extension") or "").lower() == "pdf")
+            if att.get("file_type") != "image" and not es_pdf:
                 continue
             url = att.get("data_url") or att.get("file_url")
             if not url:
+                continue
+            if es_pdf:
+                # Un PDF de DNI trae frente y dorso juntos: se usa el mismo link para las dos.
+                pdfs_dni.append((len(imagenes), url))
+                imagenes.append(url)
                 continue
             firma = (att.get("file_size"), att.get("width"), att.get("height"))
             if firma[0] is not None and firma in vistas:
@@ -4184,6 +4226,8 @@ def _extraer_fotos_dni(all_messages: list) -> tuple:
 
     if not imagenes:
         return "", ""
+    if pdfs_dni and pdfs_dni[-1][0] == len(imagenes) - 1:
+        return imagenes[-1], imagenes[-1]
     if len(imagenes) == 1:
         return imagenes[0], ""
     return imagenes[-2], imagenes[-1]
