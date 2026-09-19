@@ -3990,13 +3990,19 @@ async def _revisar_conversaciones_sin_responder() -> None:
 _pending_followups: dict = {}
 
 # Palabras que solo aparecen en mensajes del bot DESPUÉS de que el cliente ya eligió un plan y
-# confirmó que quiere avanzar (secciones 43/44 del SYSTEM_PROMPT -- el checklist de datos recién
-# se pide en ese momento, nunca antes). Se usan como filtro de intención para el seguimiento
-# automático, ver _cliente_confirmo_plan().
+# confirmó que quiere avanzar (sección 39 del SYSTEM_PROMPT prohíbe explícitamente pedir estos
+# datos ANTES de esa confirmación -- "nombre completo, dirección, localidad, provincia, CUIT,
+# documentación" recién se piden después de OFERTA → DECISIÓN). Se usan como filtro de intención
+# para el seguimiento automático, ver _cliente_confirmo_plan().
+#
+# OJO: el modelo redacta estos pedidos con sus propias palabras cada vez (sección 43, "podés usar
+# uno o varios mensajes"), no copia frases fijas -- por eso se usan palabras sueltas y distintivas
+# en vez de frases largas exactas. Probado contra los ejemplos reales de fraseo del propio prompt
+# (ej. "y que numero queres portar?", "foto del frente y otra del dorso de tu DNI") para
+# verificar que SÍ matchean pese a no ser una copia literal de una frase fija.
 _PALABRAS_CHECKLIST_INICIADO = (
-    "número a portar", "numero a portar", "código postal", "codigo postal",
-    "nombre completo", "dirección completa", "direccion completa",
-    "foto del frente", "foto de tu dni", "frente y dorso",
+    "localidad", "provincia", "código postal", "codigo postal",
+    "dirección", "direccion", "dorso", "nombre completo", "portar",
 )
 
 
