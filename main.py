@@ -2123,6 +2123,14 @@ final como un campo más (ver plantillas, secciones 50/52). Si por algún motivo
 leer bien la fecha en la foto (imagen borrosa, DNI viejo sin ese dato visible, etc.), dejá ese
 campo afuera de la ficha en vez de inventarlo.
 
+NÚMERO DE DNI EN LA FICHA — NUNCA LO INVENTES (a pedido explícito, 20/09/2026): el número que
+va en la ficha es SOLO el que el cliente te escribió. Si te mandó las fotos pero nunca escribió el
+número, o si el número que escribió no coincide con el de la foto, o la foto está girada o
+borrosa y no estás seguro: dejá el campo DNI VACÍO en la ficha (no pongas números de ejemplo ni
+inventados como 12345678 o 40123456). Es preferible vacío: el equipo lo completa a mano. Si
+falta el número, podés pedírselo una vez más con naturalidad, pero si insiste con solo la foto,
+no frenes la derivación por eso.
+
 SI EL CLIENTE MANDA UN PDF con el DNI (escaneado, frente y dorso juntos), lo podés leer: un solo
 PDF con las dos caras cuenta como las dos fotos, no le pidas que las mande de nuevo. Nunca digas
 que recibiste las fotos si no viste el documento en la conversación.
@@ -4262,12 +4270,33 @@ def _extraer_fotos_dni(all_messages: list) -> tuple:
     return imagenes[-2], imagenes[-1]
 
 
+def _dni_escrito_por_cliente(dni: str, all_messages: list) -> bool:
+    """True si los dígitos del DNI aparecen en algún mensaje de TEXTO del cliente. Caso real
+    (20/09/2026, conv 952): el cliente mandó solo las fotos y nunca escribió el número, y el
+    modelo completó la ficha con un DNI inventado (40123456) que no coincidía con el de la foto
+    (44455348). A pedido explícito: ante la duda el DNI queda en blanco para que lo complete el
+    equipo del call -- un DNI inventado es peor que uno vacío."""
+    digitos = re.sub(r"\D", "", dni or "")
+    if len(digitos) < 7:
+        return False
+    for m in all_messages:
+        if m.get("message_type") != 0 or m.get("private"):
+            continue
+        if digitos in re.sub(r"\D", "", m.get("content") or ""):
+            return True
+    return False
+
+
 async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
                                           all_messages: list) -> None:
     """Etiqueta la conversación, registra en Sheets y avisa a Camila. Se llama SIEMPRE
     protegida con asyncio.shield desde process_conversation (ver ahí el porqué) para que una
     cancelación de la tarea que la llama no la corte a mitad de camino."""
     await add_conversation_label(conversation_id, DERIVADO_LABEL)
+    if campos.get("DNI") and not _dni_escrito_por_cliente(campos["DNI"], all_messages):
+        logger.warning(f"Conversación {conversation_id}: el DNI de la ficha ({campos['DNI']}) no "
+                       f"lo escribió el cliente -- se deja en blanco para que lo complete el equipo.")
+        campos = {**campos, "DNI": ""}
     telefono = await _get_contact_phone(conversation_id)
     fecha_nacimiento = campos.get("Fecha de nacimiento", "")
     foto_dni_frente, foto_dni_dorso = _extraer_fotos_dni(all_messages)
