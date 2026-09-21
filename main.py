@@ -3860,6 +3860,14 @@ def _separar_ficha_de_burbuja(bubble: str) -> list:
 # --------------------------------------------------------------------------------------
 # OpenRouter
 # --------------------------------------------------------------------------------------
+def _tiene_razonamiento_filtrado(texto: str) -> bool:
+    """El modelo a veces "piensa en voz alta" dentro del contenido de la respuesta (caso real
+    21/09/2026: 10 mensajes en 2 conversaciones empezaban con "silently thinking." seguido de su
+    razonamiento interno, y el cliente los recibió tal cual). Se detecta por esa marca, que
+    apareció en todos los casos, para NO mandarlo y reintentar."""
+    return "silently thinking" in (texto or "").lower()
+
+
 async def call_openrouter(messages: list, intentos: int = 3) -> str:
     """Llama a OpenRouter. A veces el modelo devuelve content=null con finish_reason="stop"
     (glitch observado con Gemini vía OpenRouter, sin relación con errores HTTP) — se reintenta
@@ -3888,6 +3896,11 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
                     resp.raise_for_status()
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
+                if content and _tiene_razonamiento_filtrado(content):
+                    logger.warning(f"OpenRouter devolvió razonamiento interno dentro de la respuesta "
+                                   f"en el intento {intento}/{intentos}; se descarta y se reintenta.")
+                    ultimo_error = "la respuesta traía el razonamiento interno del modelo"
+                    continue
                 if content:
                     return content
                 finish_reason = data["choices"][0].get("finish_reason")
