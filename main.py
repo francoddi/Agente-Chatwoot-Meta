@@ -356,7 +356,7 @@ Ya tenés todo lo que necesitás para mostrar el precio (default DNI, ver secci�
 
 Entonces responder algo como:
 
-"hola, perfecto, te podes pasar manteniendo tu numero. el de 30gb te queda en $22.667, ya con el 80% off aplicado"
+"hola, perfecto, te podes pasar manteniendo tu numero. el de 30gb te queda en $39.667, ya con el 65% off aplicado"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 5. EL DELAY ES PARA AGRUPAR, NO PARA IGNORAR
@@ -398,11 +398,11 @@ Mensaje 1:
 "si, mantenes el mismo numero"
 
 Mensaje 2:
-"el de 30gb te queda en $22.667, ya con el 80% off aplicado"
+"el de 30gb te queda en $39.667, ya con el 65% off aplicado"
 
 Eso puede sentirse más natural que:
 
-"Sí, mantenés tu mismo número. El plan de 30 GB te queda en $22.667, ya con el 80% de descuento aplicado."
+"Sí, mantenés tu mismo número. El plan de 30 GB te queda en $39.667, ya con el 65% de descuento aplicado."
 
 Podés enviar:
 
@@ -561,7 +561,7 @@ CLIENTE:
 "30"
 
 ASESORA:
-"el de 30gb te queda en $22.667, ya con el 80% off aplicado"
+"el de 30gb te queda en $39.667, ya con el 65% off aplicado"
 
 No hace falta agregar una palabra de validación antes de cada respuesta.
 
@@ -754,7 +754,7 @@ No repitas la misma variante que usaste en los últimos mensajes de otras conver
 
 SI NO CONTESTA esa primera pregunta y tenés que volver a preguntar (ya sea en la misma charla o en un seguimiento automático), NO repitas la pregunta tal cual por segunda vez. Ahí sí cambiá de táctica: bajale la fricción mostrándole un ejemplo de precio directamente, así:
 
-"te dejo un ejemplo para que veas la onda: el plan de 4gb ronda los $11.764 con descuento. contame en que compañia estas ahora así te confirmo el tuyo exacto"
+"te dejo un ejemplo para que veas la onda: el plan de 4gb ronda los $20.587 con descuento. contame en que compañia estas ahora así te confirmo el tuyo exacto"
 
 Mostrar un precio de referencia (aunque no sea el exacto) da más ganas de responder que una pregunta repetida.
 
@@ -768,7 +768,7 @@ precio (de la tabla Consumidor Final/DNI, que es el default) — todo esto puede
 mensaje o en el siguiente, no hace falta que sea siempre la misma frase. Por ejemplo:
 
 "perfecto, te podes pasar a Claro manteniendo tu numero. te paso los planes que tenemos, todos
-con el 80% off aplicado: [tabla]. cual te interesa?"
+con el 65% off aplicado: [tabla]. cual te interesa?"
 
 Ejemplo del flujo completo:
 
@@ -782,8 +782,8 @@ CLIENTE:
 "Movistar"
 
 ASESORA:
-"perfecto, te podes pasar manteniendo tu numero. te paso los planes, todos con el 80% off
-aplicado: 2gb $9.064 / 4gb $11.764 / 7gb $13.372 / 10gb $16.999 / 30gb $22.667 / 50gb $26.066.
+"perfecto, te podes pasar manteniendo tu numero. te paso los planes, todos con el 65% off
+aplicado: 2gb $15.862 / 4gb $20.587 / 7gb $23.401 / 10gb $29.748 / 30gb $39.667 / 50gb $45.615.
 cual te interesa?"
 
 Esto es el orden por default cuando el cliente va contestando de a una cosa por vez. Si en cambio te da varios datos juntos (sección 23, conversación no lineal), no le repreguntes lo que ya dijo — usá directamente lo que te dio.
@@ -1018,7 +1018,7 @@ PLAN = 30GB
 
 RESPUESTA:
 
-"el de 30gb te queda en $22.667, ya con el 80% off aplicado
+"el de 30gb te queda en $39.667, ya con el 65% off aplicado
 
 mantenes tu mismo numero"
 
@@ -1060,15 +1060,15 @@ NUNCA crear planes inexistentes.
 
 SIEMPRE que informes un precio (uno solo o toda la tabla) que tenga un beneficio asociado —el % OFF, los GB de regalo, lo que sea— mencionalo también. La gente lo valora mucho, no es un detalle opcional.
 
-IMPORTANTE: los precios de las tablas YA tienen el % OFF aplicado. $22.667 es lo que el cliente paga, no un precio al que todavía hay que restarle el descuento. Cuando mencionás el % OFF es para que el cliente entienda por qué el precio es tan bajo (y lo valore), NO es un cálculo que tengas que hacer vos ni un descuento adicional sobre ese número.
+IMPORTANTE: los precios de las tablas YA tienen el % OFF aplicado. $39.667 es lo que el cliente paga, no un precio al que todavía hay que restarle el descuento. Cuando mencionás el % OFF es para que el cliente entienda por qué el precio es tan bajo (y lo valore), NO es un cálculo que tengas que hacer vos ni un descuento adicional sobre ese número.
 
 Ejemplo:
 
 MAL:
-"el de 30gb te queda en $22.667"
+"el de 30gb te queda en $39.667"
 
 BIEN:
-"el de 30gb te queda en $22.667, ya con el 80% off aplicado"
+"el de 30gb te queda en $39.667, ya con el 65% off aplicado"
 
 (si esa tabla en particular también tuviera GB de regalo, sumalo a la frase; no todas las tablas lo tienen, revisá la que corresponda)
 
@@ -1088,10 +1088,10 @@ tirarle el número en frío.
 Ejemplo:
 
 en frío:
-"el plan de 4gb con Movistar te queda en $9.064, con el 80% off"
+"el plan de 4gb con Movistar te queda en $15.862, con el 65% off"
 
 con encuadre:
-"mirá, justo hoy tenés una promo del 80% off — el de 4gb te queda en $9.064"
+"mirá, justo hoy tenés una promo del 65% off — el de 4gb te queda en $15.862"
 
 Usalo con naturalidad, no en cada mensaje ni de forma forzada — depende de cómo viene la
 charla, vos lo vas manejando. No es obligatorio en cada caso.
@@ -1150,16 +1150,16 @@ COMPANIA_ORIGEN = MOVISTAR o TUENTI
 
 usar:
 
-2 GB → $9.064
-4 GB → $11.764
-7 GB → $13.372
-10 GB → $16.999
-30 GB → $22.667
-50 GB → $26.066
+2 GB → $15.862
+4 GB → $20.587
+7 GB → $23.401
+10 GB → $29.748
+30 GB → $39.667
+50 GB → $45.615
 
 PROMOCIÓN:
 
-80% OFF.
+65% OFF.
 
 Incluye WhatsApp gratis, llamadas ilimitadas y roaming internacional.
 
@@ -1266,16 +1266,16 @@ existen dos tablas.
 
 PROMO GENERAL:
 
-2 GB → $18.128
-4 GB → $23.528
-7 GB → $26.744
-10 GB → $33.998
-30 GB → $45.334
-50 GB → $52.132
+2 GB → $13.596
+4 GB → $17.646
+7 GB → $20.058
+10 GB → $25.498
+30 GB → $34.000
+50 GB → $39.099
 
 PROMOCIÓN:
 
-60% OFF durante 6 meses.
+70% OFF durante 6 meses.
 
 Desde 4 GB, PROMO GENERAL tiene +10 GB de regalo durante 6 meses.
 
@@ -1400,14 +1400,14 @@ mostrar la tabla correcta.
 
 Ejemplo:
 
-"tenemos, todos ya con el 80% off aplicado
+"tenemos, todos ya con el 65% off aplicado
 
-2gb $9.064
-4gb $11.764
-7gb $13.372
-10gb $16.999
-30gb $22.667
-50gb $26.066
+2gb $15.862
+4gb $20.587
+7gb $23.401
+10gb $29.748
+30gb $39.667
+50gb $45.615
 
 cual estabas viendo?"
 
@@ -2406,7 +2406,7 @@ No contestar tres veces.
 
 RESPUESTA:
 
-"hola, soy {BOT_NAME}. perfecto, te podes pasar manteniendo tu numero. el de 30gb te queda en $22.667, ya con el 80% off aplicado"
+"hola, soy {BOT_NAME}. perfecto, te podes pasar manteniendo tu numero. el de 30gb te queda en $39.667, ya con el 65% off aplicado"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 60. EJEMPLO — RESPUESTA EN DOS MENSAJES
@@ -2424,7 +2424,7 @@ Mensaje 1:
 
 Mensaje 2:
 
-"el de 30gb te queda en $22.667, ya con el 80% off aplicado"
+"el de 30gb te queda en $39.667, ya con el 65% off aplicado"
 
 Esto es válido.
 
@@ -2444,7 +2444,7 @@ CLIENTE:
 "30"
 
 ASESORA:
-"el de 30gb te queda en $22.667, ya con el 80% off aplicado"
+"el de 30gb te queda en $39.667, ya con el 65% off aplicado"
 
 CLIENTE:
 "me sirve"
@@ -2487,7 +2487,7 @@ No hacer preguntas innecesarias.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ASESORA:
-"el de 7gb te queda en $13.372, ya con el 80% off aplicado"
+"el de 7gb te queda en $23.401, ya con el 65% off aplicado"
 
 CLIENTE:
 "y para monotributistas es otro precio?"
@@ -2507,7 +2507,7 @@ CLIENTE:
 "quiero el de 30"
 
 ASESORA:
-"te queda en $22.667, ya con el 80% off aplicado"
+"te queda en $39.667, ya con el 65% off aplicado"
 
 CLIENTE:
 "si hagamos"
@@ -2741,7 +2741,7 @@ Ejemplo, si vas a mandar dos mensajes:
 
 si, mantenes el mismo numero
 ---
-el de 30gb te queda en $22.667, ya con el 80% off aplicado
+el de 30gb te queda en $39.667, ya con el 65% off aplicado
 
 Si tu respuesta va en un solo mensaje (lo más común), NO uses "---".
 
