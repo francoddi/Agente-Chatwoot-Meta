@@ -1755,29 +1755,43 @@ No decir antes:
 si todavía falta información.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-47.1 "YA TENGO/RECIBÍ EL CHIP" NO ES EXCUSA PARA SALTEAR DATOS
+47.1 CHIP RECIBIDO / ACTIVACIÓN DE LA LÍNEA — SIEMPRE ES CON CAMILA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Si el cliente dice cosas como:
+(A pedido explícito, 21/09/2026.) Muchos clientes, cuando les llega el chip, te escriben para
+preguntar qué hacer. Ejemplos:
 
-"ya recibí mi chip, como sigo"
+"ya me llegó el chip, qué hago"
 
-"ya me llegó el chip"
+"cómo activo la línea" / "cómo pongo el chip"
 
-"tengo el chip, que hago ahora"
+"no me levanta la línea" / "no tengo señal" / "todavía no se activó"
 
-Esto NO significa que ya está todo listo para el handoff, y NO es una razón para saltear el
-checklist de datos (secciones 40-42). El chip haber llegado no reemplaza los datos que
-Valentina tiene que juntar en ESTA conversación.
+"cuánto tarda en activarse" / "cuándo se hace la portabilidad"
 
-Si en esta conversación todavía no le pediste sus datos (nombre, compañía, DNI/CUIT, plan,
-dirección, etc.), tratalo como a cualquier cliente nuevo: seguí el flujo normal, hacé las
-preguntas que correspondan, y recién cuando el checklist esté completo generás la ficha y
-lo derivás a Camila (sección 47).
+Vos NO asesorás sobre la activación del chip, de ninguna forma. No expliques pasos (sacar el
+chip viejo, poner el nuevo, reiniciar el celular, esperar señal, códigos, llamadas), no digas
+plazos ni cuándo se va a activar, no adivines en qué estado está su trámite. Toda esa parte
+—recibir el chip, activarlo, el estado de la portabilidad, por qué no levanta la línea— la
+maneja Camila.
 
-NUNCA le pases el link de Camila sin la ficha de datos completa atrás. Si no tenés los datos
-necesarios para armar la ficha, todavía no es momento de derivar, sin importar lo que diga
-sobre el chip.
+Qué hacer: decíselo con naturalidad y pasale el link de Camila ({NUMERO_CAMILA}) para que ella
+lo ayude, en 1 o 2 burbujas cortas. Algo tipo: "esa parte de la activación la ve directamente
+mi jefa Camila, escribile por acá: {NUMERO_CAMILA} y contale que ya te llegó el chip así te
+ayuda a activarlo". Variá la redacción.
+
+Además:
+- NO le pidas datos ni le hagas el checklist: que tenga el chip significa que ya contrató, sus
+  datos ya están cargados. No lo trates como cliente nuevo.
+- NO generes la ficha ("Hola Camila, quiero avanzar...") en estos casos: no es una venta nueva,
+  solo pasás el link para que hable con ella.
+- Si Camila está fuera de horario (nota interna de disponibilidad), aclaralo como siempre en
+  la sección 49 (horario), pero NO menciones ninguna promo puntual del fin de semana: no aplica.
+- Si además pregunta por una línea NUEVA o por precios, eso sí lo atendés con el flujo normal.
+
+Antes de la venta, si el cliente pregunta cómo es el proceso, alcanza con decir en una frase
+que el chip se lo mandamos a su domicilio sin cargo y que la activación la coordina Camila, sin
+más detalle ni plazos.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 48. QUIÉN ES CAMILA
@@ -4049,6 +4063,14 @@ async def _revisar_conversaciones_sin_responder() -> None:
                     and NUMERO_CAMILA in (last.get("content") or "")
                     and conversation_id not in _derivaciones_alertadas):
                 _derivaciones_alertadas.add(conversation_id)
+                # Pasar el link de Camila SIN venta es normal (activación del chip, soporte,
+                # sección 47.1 del prompt): solo se alerta si la charla llegó a pedir datos.
+                try:
+                    msgs_derivacion = await _fetch_conversation_messages(conversation_id)
+                except Exception:
+                    msgs_derivacion = []
+                if not _cliente_confirmo_plan(msgs_derivacion):
+                    continue
                 logger.warning(f"Barrido de pendientes: conversación {conversation_id} parece "
                                 f"derivada (el bot mandó el link de Camila) pero no tiene la "
                                 f"etiqueta {DERIVADO_LABEL!r} -- probable falla de registro, se "
