@@ -3864,8 +3864,10 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     """El modelo a veces "piensa en voz alta" dentro del contenido de la respuesta (caso real
     21/09/2026: 10 mensajes en 2 conversaciones empezaban con "silently thinking." seguido de su
     razonamiento interno, y el cliente los recibió tal cual). Se detecta por esa marca, que
-    apareció en todos los casos, para NO mandarlo y reintentar."""
-    return "silently thinking" in (texto or "").lower()
+    apareció en todos los casos (a veces como "silently thinking.", a veces solo "silently"), para
+    NO mandarlo y reintentar."""
+    t = (texto or "").lower()
+    return "silently thinking" in t or t.lstrip().startswith("silently")
 
 
 async def call_openrouter(messages: list, intentos: int = 3) -> str:
