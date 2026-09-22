@@ -4354,10 +4354,17 @@ def _dni_escrito_por_cliente(dni: str, all_messages: list) -> bool:
 
 async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
                                           all_messages: list) -> None:
-    """Etiqueta la conversación, registra en Sheets y avisa a Camila. Se llama SIEMPRE
+    """Registra en Sheets, avisa a Camila y por último etiqueta la conversación. Se llama SIEMPRE
     protegida con asyncio.shield desde process_conversation (ver ahí el porqué) para que una
-    cancelación de la tarea que la llama no la corte a mitad de camino."""
-    await add_conversation_label(conversation_id, DERIVADO_LABEL)
+    cancelación de la tarea que la llama no la corte a mitad de camino.
+
+    OJO CON EL ORDEN (caso real 21/09/2026, Hugo Chirino): antes la etiqueta se ponía PRIMERO,
+    antes de registrar en Sheets. Si el proceso entero se reiniciaba justo entre esas dos líneas
+    (por ejemplo un redeploy), la conversación quedaba con la etiqueta puesta pero SIN fila en
+    Sheets -- invisible tanto para el reintento (el proceso murió, no quedó nada corriendo para
+    reintentar) como para el barrido de los 5 minutos (que busca derivaciones SIN la etiqueta,
+    y acá la etiqueta ya estaba). Poniendo la etiqueta al final: si el proceso muere antes de
+    terminar de registrar, la conversación queda sin etiqueta y el barrido SÍ la detecta."""
     if campos.get("DNI") and not _dni_escrito_por_cliente(campos["DNI"], all_messages):
         logger.warning(f"Conversación {conversation_id}: el DNI de la ficha ({campos['DNI']}) no "
                        f"lo escribió el cliente -- se deja en blanco para que lo complete el equipo.")
@@ -4367,6 +4374,7 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
     foto_dni_frente, foto_dni_dorso = _extraer_fotos_dni(all_messages)
     await log_to_google_sheets(campos, telefono, fecha_nacimiento, foto_dni_frente, foto_dni_dorso)
     await notify_camila_carga_sheets(campos, telefono)
+    await add_conversation_label(conversation_id, DERIVADO_LABEL)
 
 
 async def process_conversation(conversation_id: int) -> None:
