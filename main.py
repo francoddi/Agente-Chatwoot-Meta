@@ -4200,6 +4200,13 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         logger.info(f"Conversación {conversation_id} pausada; se cancela el seguimiento automático.")
         return
 
+    if DERIVADO_LABEL in (labels or []):
+        # A pedido explícito (22/09/2026): una vez derivado a Camila, ahí termina lo que le toca
+        # a Valentina -- no le sigue mandando mensajes preguntando cómo le fue con ella.
+        logger.info(f"Conversación {conversation_id}: ya está derivada a Camila, se cancela el "
+                    f"seguimiento automático.")
+        return
+
     all_messages = await _fetch_conversation_messages(conversation_id)
     if not all_messages:
         logger.error(f"No se pudo chequear si corresponde seguimiento en la conversación {conversation_id}.")
@@ -4232,7 +4239,7 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         f"últimos {minutos} minutos.] Escribí un mensaje de seguimiento corto y natural, con "
         f"contexto real de en qué había quedado la charla (repasá el historial: si le mostraste "
         f"planes, preguntale qué le parecieron; si le pediste un dato, pedíselo de nuevo con "
-        f"otras palabras; si ya lo derivaste a Camila, preguntale si pudo hablar con ella). "
+        f"otras palabras). "
         f"SI LO QUE QUEDÓ PENDIENTE ES LA PRIMERA PREGUNTA (en qué compañía está / DNI o CUIT) "
         f"y todavía no le mostraste ningún precio: NO repitas esa pregunta tal "
         f"cual. Cambiá de táctica y mostrale un ejemplo de precio de referencia para darle una "
