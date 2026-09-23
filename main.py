@@ -3895,14 +3895,32 @@ def _separar_ficha_de_burbuja(bubble: str) -> list:
 # --------------------------------------------------------------------------------------
 # OpenRouter
 # --------------------------------------------------------------------------------------
+_PATRONES_META_SIN_RESPUESTA = (
+    "no se envía respuesta", "no se envia respuesta",
+    "se espera a que el cliente", "no hace falta responder",
+    "no es necesario responder", "no se requiere respuesta",
+    "no se necesita responder", "sin enviar respuesta",
+)
+
+
 def _tiene_razonamiento_filtrado(texto: str) -> bool:
-    """El modelo a veces "piensa en voz alta" dentro del contenido de la respuesta (caso real
-    21/09/2026: 10 mensajes en 2 conversaciones empezaban con "silently thinking." seguido de su
-    razonamiento interno, y el cliente los recibió tal cual). Se detecta por esa marca, que
-    apareció en todos los casos (a veces como "silently thinking.", a veces solo "silently"), para
-    NO mandarlo y reintentar."""
-    t = (texto or "").lower()
-    return "silently thinking" in t or t.lstrip().startswith("silently")
+    """El modelo a veces, en vez de responder de verdad, narra su propio razonamiento o su
+    decisión de no responder -- y esa narración sale tal cual en el contenido de la respuesta,
+    así que el cliente la recibe como si fuera un mensaje real.
+
+    Casos reales encontrados en vivo:
+    - 21/09/2026: 10 mensajes en 2 conversaciones empezaban con "silently thinking." seguido de
+      razonamiento interno (a veces como "silently thinking.", a veces solo "silently").
+    - 23/09/2026: un mensaje fue literalmente "(No se envía respuesta. Se espera a que el
+      cliente envíe los datos solicitados)." -- el modelo decidió no responder, pero en vez de
+      devolver contenido vacío (que ya se maneja aparte, ver el chequeo de finish_reason),
+      escribió esa narración como si fuera la respuesta.
+
+    En ambos casos la solución es la misma: NO mandarlo y reintentar."""
+    t = (texto or "").strip().lower()
+    if "silently thinking" in t or t.startswith("silently"):
+        return True
+    return any(p in t for p in _PATRONES_META_SIN_RESPUESTA)
 
 
 async def call_openrouter(messages: list, intentos: int = 3) -> str:
