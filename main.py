@@ -2819,15 +2819,12 @@ MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "0"))
 # se programa, para que no sea siempre exactamente el mismo tiempo. El bot puede marcar una
 # respuesta como "tema cerrado" para que no se programe seguimiento después de ella.
 #
-# REACTIVADO (18/09/2026, a pedido explícito) con un alcance más acotado que antes: la vez
-# pasada WhatsApp restringió la cuenta por 30 días citando "spam... a través de
-# automatizaciones" -- medido en vivo, el seguimiento le llegaba al 61% de los leads y el 91% de
-# esos nunca convertía (la gran mayoría ni siquiera contestaba), el patrón clásico que Meta
-# marca como spam. Ahora send_followup_if_needed() solo lo manda a leads de intención real
-# (_cliente_confirmo_plan -- ya eligieron un plan y confirmaron que quieren avanzar, el bot ya
-# empezó a pedir datos del checklist), no a cualquiera que se quedó callado -- eso baja mucho el
-# volumen de mensajes automáticos, concentrado donde de verdad hay conversión recuperable.
-FOLLOWUP_ENABLED = os.getenv("FOLLOWUP_ENABLED", "true").lower() == "true"
+# DESACTIVADO DE NUEVO (23/09/2026, a pedido explícito y urgente): se bloquearon LOS DOS números
+# de WhatsApp Business. Había estado reactivado el 18/09 con un alcance más acotado
+# (_cliente_confirmo_plan, solo a leads de intención real ya confirmada), pero ante un segundo
+# bloqueo se corta este mensaje automático por completo hasta nueva orden explícita. Poner
+# FOLLOWUP_ENABLED=true para reactivarlo cuando se decida.
+FOLLOWUP_ENABLED = os.getenv("FOLLOWUP_ENABLED", "false").lower() == "true"
 FOLLOWUP_DELAY_MIN_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MIN_SECONDS", "2700"))  # 45 min
 FOLLOWUP_DELAY_MAX_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MAX_SECONDS", "3600"))  # 60 min
 FOLLOWUP_CLOSE_MARKER = "[FIN_SEGUIMIENTO]"
