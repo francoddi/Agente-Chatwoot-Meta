@@ -2840,13 +2840,13 @@ _CAMPO_A_COLUMNA_SHEETS = {
     "DNI": "F",
     "CUIT": "F",
     "Fecha de nacimiento": "G",
-    "Email": "J",
-    "Provincia": "M",
-    "Localidad": "N",
-    "Dirección": "O",
-    "Código postal": "R",
-    "Número a portar": "S",
-    "Plan elegido": "U",
+    "Email": "K",
+    "Provincia": "N",
+    "Localidad": "O",
+    "Dirección": "P",
+    "Código postal": "S",
+    "Número a portar": "T",
+    "Plan elegido": "V",
 }
 
 # Resumen diario (opcional): a la hora configurada (huso Argentina), le manda al número del
@@ -3284,7 +3284,7 @@ async def _corregir_dato_sheets(telefono: str, campo: str, valor: str) -> bool:
         logger.error("No se pudo obtener un token de Google Sheets; no se corrigió el dato.")
         return False
 
-    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!T:T", safe="")
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!U:U", safe="")
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
         f"/values/{encoded_range}"
@@ -3334,7 +3334,7 @@ async def _corregir_dato_sheets(telefono: str, campo: str, valor: str) -> bool:
 
 
 async def _forzar_links_visibles(updated_range: str) -> None:
-    """Fuerza el formato "LINKED" (clickeable, subrayado) en las columnas H e I (Foto DNI /
+    """Fuerza el formato "LINKED" (clickeable, subrayado) en las columnas I y J (Foto DNI /
     Foto DNI dorso) de la fila recién agregada.
 
     Por qué hace falta: encontrado en vivo con ventas reales -- una fila nueva puede heredar,
@@ -3359,8 +3359,8 @@ async def _forzar_links_visibles(updated_range: str) -> None:
                     "sheetId": _GOOGLE_SHEETS_SHEET_ID,
                     "startRowIndex": fila - 1,
                     "endRowIndex": fila,
-                    "startColumnIndex": 7,  # H
-                    "endColumnIndex": 9,  # I (exclusivo, o sea cubre H e I)
+                    "startColumnIndex": 8,  # I
+                    "endColumnIndex": 10,  # J (exclusivo, o sea cubre I y J)
                 },
                 "cell": {"userEnteredFormat": {"hyperlinkDisplayType": "LINKED"}},
                 "fields": "userEnteredFormat.hyperlinkDisplayType",
@@ -3383,7 +3383,7 @@ async def _avisar_error_sheets(row: list) -> None:
     if not NUMERO_DUENO:
         return
     nombre = row[4] if len(row) > 4 else "(sin nombre)"
-    numero = row[16] if len(row) > 16 else "(sin número)"
+    numero = row[19] if len(row) > 19 else "(sin número)"
     mensaje = (
         f"⚠️ No se pudo cargar en la planilla una venta:\n"
         f"Nombre: {nombre}\n"
@@ -3490,7 +3490,7 @@ def _split_planes(texto: str) -> list:
 
 
 async def _pares_numero_telefono_existentes() -> set:
-    """Lee las columnas S (NUMERO A PORTAR) y T (NUMERO DE CONTACTO) de todo el Sheet y arma el
+    """Lee las columnas T (NUMERO A PORTAR) y U (NUMERO DE CONTACTO) de todo el Sheet y arma el
     set de pares (número, teléfono) ya cargados, comparando solo dígitos (para no fallar por
     formato: con o sin '+', espacios, etc.). Se usa para no duplicar una fila que ya existe (ver
     log_to_google_sheets). Si falla la lectura, devuelve un set vacío (no bloquea la carga por
@@ -3501,7 +3501,7 @@ async def _pares_numero_telefono_existentes() -> set:
     token = await _get_sheets_access_token()
     if not token:
         return set()
-    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!S:T", safe="")
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!T:U", safe="")
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
         f"/values/{encoded_range}"
@@ -3512,7 +3512,7 @@ async def _pares_numero_telefono_existentes() -> set:
             resp.raise_for_status()
             filas = resp.json().get("values", []) or []
     except Exception as e:
-        logger.error(f"No se pudo leer S:T de Sheets para chequear duplicados: {e}")
+        logger.error(f"No se pudo leer T:U de Sheets para chequear duplicados: {e}")
         return set()
 
     pares = set()
@@ -3526,15 +3526,18 @@ async def _pares_numero_telefono_existentes() -> set:
 async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
                                  foto_dni_frente: str = "", foto_dni_dorso: str = "") -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
-    a la planilla. Columnas reales de la planilla, en este orden (confirmado contra el
-    encabezado real el 15/09/2026, después de que el equipo agregó "Foto DNI" y "Foto DNI
-    dorso", las dos entre "F. nac" y "Email" — si vuelven a insertar/mover columnas a mano, hay
-    que re-confirmar esto contra el encabezado real, porque un desfasaje acá corre todos los
-    datos de columna en silencio):
+    a la planilla. Columnas reales de la planilla, en este orden (re-confirmado contra el
+    encabezado real el 26/09/2026, después de que el equipo insertó una columna sin nombre
+    entre "F. nac" y "Foto DNI" -- CASO REAL: esto corrió en silencio todas las columnas de
+    "Foto DNI" en adelante una posición a la izquierda durante unos días, hasta que se detectó
+    con una venta real (Ruben Emilio Perez, 26/09) que se veía "toda corrida". Si vuelven a
+    insertar/mover columnas a mano, hay que re-confirmar esto contra el encabezado real, porque
+    un desfasaje acá corre todos los datos de columna en silencio, sin ningún error visible):
 
     Estado | Vendedora | Fecha portación | Fecha de venta | Nombre y apellido | DNI | F. nac |
-    Foto DNI | Foto DNI dorso | Email | Empresa donante | Segmento | Provincia | Localidad |
-    Direcc entrega | Altura | Piso/depto | CP | Número a portar | Número de contacto | Plan |
+    (columna sin nombre, se deja vacía) | Foto DNI | Foto DNI dorso | Email | Empresa donante |
+    Segmento | Provincia | Localidad | Direcc entrega | Altura | Piso/depto | CP |
+    Número a portar | Número de contacto | Plan |
     [Num seguimiento correo | PIN | Observaciones | Observaciones — estas últimas 4 no se
     escriben, ver abajo]
 
@@ -3609,6 +3612,7 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             campos.get("Nombre", ""),
             campos.get("DNI", "") or campos.get("CUIT", ""),
             fecha_nacimiento_celda,  # F. nac (se lee de la foto del DNI, si el cliente la mandó)
+            "",  # Columna sin nombre que el equipo insertó entre F. nac y Foto DNI (26/09/2026)
             foto_frente,  # Foto DNI (link directo a Chatwoot, si el cliente la mandó)
             foto_dorso,  # Foto DNI dorso (ídem)
             campos.get("Email", ""),
