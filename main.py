@@ -1266,16 +1266,16 @@ existen dos tablas.
 
 PROMO GENERAL:
 
-2 GB → $13.596
-4 GB → $17.646
-7 GB → $20.058
-10 GB → $25.499
-30 GB → $34.001
-50 GB → $39.099
+2 GB → $18.128
+4 GB → $23.528
+7 GB → $26.744
+10 GB → $33.998
+30 GB → $45.334
+50 GB → $52.132
 
 PROMOCIÓN:
 
-70% OFF durante 6 meses.
+60% OFF durante 6 meses.
 
 Desde 4 GB, PROMO GENERAL tiene +10 GB de regalo durante 6 meses.
 
