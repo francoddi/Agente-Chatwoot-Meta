@@ -2855,6 +2855,10 @@ _CAMPO_A_COLUMNA_SHEETS = {
 # tiene que haberle escrito antes al número del negocio para poder recibir mensajes.
 NUMERO_DUENO = os.getenv("NUMERO_DUENO", "")
 RESUMEN_DIARIO_HORA = os.getenv("RESUMEN_DIARIO_HORA", "00:00")  # HH:MM, huso Argentina
+# DESACTIVADO (26/09/2026, a pedido explícito) -- separado de NUMERO_DUENO a propósito: los
+# avisos de fallas críticas (_avisar_fallo_respuesta, el barrido de derivaciones sin registrar)
+# siguen usando NUMERO_DUENO y tienen que seguir andando aunque el resumen diario esté apagado.
+RESUMEN_DIARIO_ENABLED = os.getenv("RESUMEN_DIARIO_ENABLED", "false").lower() == "true"
 
 HTTP_TIMEOUT = 60  # segundos, para TODAS las llamadas HTTP
 
@@ -3145,8 +3149,9 @@ async def enviar_resumen_diario(fecha: date) -> None:
 async def _resumen_diario_loop() -> None:
     """Corre en background mientras viva la app: espera hasta la hora configurada
     (RESUMEN_DIARIO_HORA, huso Argentina) y manda el resumen del día que acaba de terminar.
-    Se repite todos los días. Si NUMERO_DUENO está vacío, no hace nada."""
-    if not NUMERO_DUENO:
+    Se repite todos los días. Si NUMERO_DUENO está vacío o RESUMEN_DIARIO_ENABLED es false, no
+    hace nada."""
+    if not NUMERO_DUENO or not RESUMEN_DIARIO_ENABLED:
         return
     try:
         hh, mm = (int(x) for x in RESUMEN_DIARIO_HORA.split(":"))
