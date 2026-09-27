@@ -2894,6 +2894,66 @@ def _chatwoot_headers() -> dict:
 
 
 # --------------------------------------------------------------------------------------
+# Indicador de "escribiendo..." en WhatsApp (27/09/2026, a pedido explícito)
+# --------------------------------------------------------------------------------------
+_INBOX_PROVIDER_CACHE: dict = {}  # inbox_id -> {"phone_number_id": ..., "api_key": ...}
+
+
+async def _obtener_config_inbox(inbox_id: int):
+    """Trae (y cachea en memoria) el phone_number_id y el token de WhatsApp Cloud API de un
+    inbox, leyéndolos de la config que ya tiene cargada Chatwoot -- no hace falta configurar
+    nada nuevo aparte. Se usa solo para _mostrar_escribiendo: Chatwoot no le muestra el
+    indicador de "escribiendo..." al cliente en WhatsApp (lo probamos, solo se ve puertas
+    adentro en el dashboard), así que para esto hay que llamar directo a la API de Meta."""
+    if inbox_id in _INBOX_PROVIDER_CACHE:
+        return _INBOX_PROVIDER_CACHE[inbox_id]
+    url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/inboxes/{inbox_id}"
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers=_chatwoot_headers())
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        logger.warning(f"No se pudo leer la config del inbox {inbox_id} para el indicador de "
+                        f"'escribiendo...': {e}")
+        return None
+    provider_config = data.get("provider_config") or {}
+    phone_number_id = provider_config.get("phone_number_id")
+    api_key = provider_config.get("api_key")
+    if not phone_number_id or not api_key:
+        return None
+    config = {"phone_number_id": phone_number_id, "api_key": api_key}
+    _INBOX_PROVIDER_CACHE[inbox_id] = config
+    return config
+
+
+async def _mostrar_escribiendo(inbox_id, wamid: str) -> None:
+    """Le pide directo a la API de Meta que le muestre "escribiendo..." al cliente en WhatsApp
+    mientras generamos la respuesta (de paso marca el mensaje entrante como leído). Se apaga
+    solo (a los 25 segundos, o antes si ya mandamos la respuesta real). No es crítico -- si
+    falla, no debe frenar ni afectar la respuesta real, solo se loguea."""
+    if not inbox_id or not wamid:
+        return
+    config = await _obtener_config_inbox(inbox_id)
+    if not config:
+        return
+    url = f"https://graph.facebook.com/v21.0/{config['phone_number_id']}/messages"
+    body = {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": wamid,
+        "typing_indicator": {"type": "text"},
+    }
+    headers = {"Authorization": f"Bearer {config['api_key']}"}
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"No se pudo mostrar 'escribiendo...' en WhatsApp (inbox {inbox_id}): {e}")
+
+
+# --------------------------------------------------------------------------------------
 # Chatwoot: etiquetas (pausa manual) y envío de mensajes
 # --------------------------------------------------------------------------------------
 async def get_conversation_labels(conversation_id) -> list:
@@ -4456,6 +4516,9 @@ async def process_conversation(conversation_id: int) -> None:
     if not batch:
         logger.info(f"Conversación {conversation_id}: no hay mensajes entrantes pendientes, no se responde.")
         return
+
+    ultimo_entrante = batch[-1]
+    await _mostrar_escribiendo(ultimo_entrante.get("inbox_id"), ultimo_entrante.get("source_id"))
 
     ultimo_error = None
     exito = False
