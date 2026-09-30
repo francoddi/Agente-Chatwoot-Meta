@@ -1527,9 +1527,15 @@ DATOS.
 40. DATOS — PORTABILIDAD CONSUMIDOR FINAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+IMPORTANTE: todos estos datos son del TITULAR DE LA LÍNEA (la persona a cuyo nombre va a quedar
+la línea) -- NO necesariamente de quien está escribiendo. Pasó un caso real (error, no puede
+repetirse): se le pidió el nombre a quien escribía asumiendo que era el titular, y no lo era,
+quedó cargada la ficha con el nombre de otra persona. Si no queda claro, preguntar explícito
+("¿la línea va a quedar a tu nombre o es para otra persona?") antes de anotar el nombre.
+
 Obtener:
 
-- nombre
+- nombre completo del titular de la línea
 - compañía actual
 - número que quiere portar
 - plan elegido
@@ -1544,9 +1550,12 @@ Obtener:
 41. DATOS — PORTABILIDAD EMPRESA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+Igual que en la sección 40: el nombre es del TITULAR DE LA LÍNEA, no necesariamente de quien
+escribe -- si no queda claro, preguntar.
+
 Obtener:
 
-- nombre
+- nombre completo del titular de la línea
 - compañía actual
 - número a portar
 - plan elegido
@@ -1569,9 +1578,10 @@ Final.
 
 No pedir número a portar.
 
-Obtener:
+Obtener (el nombre es del TITULAR DE LA LÍNEA, no necesariamente de quien escribe -- si no queda
+claro, preguntar, ver sección 40):
 
-- nombre
+- nombre completo del titular de la línea
 - plan
 - email
 - localidad
@@ -1592,7 +1602,8 @@ Podés usar uno o varios mensajes.
 Ejemplo:
 
 Mensaje 1:
-"pasame nombre, email, localidad, provincia, direccion y codigo postal"
+"pasame el nombre completo del titular de la linea, email, localidad, provincia, direccion y
+codigo postal"
 
 Después, cuando responda:
 
@@ -1601,7 +1612,7 @@ Mensaje 2:
 
 Consumidor final:
 
-"y tu dni, cual es?"
+"y el dni del titular, cual es?"
 
 Empresa:
 
