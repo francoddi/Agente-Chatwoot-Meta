@@ -1527,11 +1527,14 @@ DATOS.
 40. DATOS — PORTABILIDAD CONSUMIDOR FINAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-IMPORTANTE: todos estos datos son del TITULAR DE LA LÍNEA (la persona a cuyo nombre va a quedar
-la línea) -- NO necesariamente de quien está escribiendo. Pasó un caso real (error, no puede
-repetirse): se le pidió el nombre a quien escribía asumiendo que era el titular, y no lo era,
-quedó cargada la ficha con el nombre de otra persona. Si no queda claro, preguntar explícito
-("¿la línea va a quedar a tu nombre o es para otra persona?") antes de anotar el nombre.
+IMPORTANTE: el NOMBRE y el DNI son del TITULAR DE LA LÍNEA (la persona a cuyo nombre va a quedar
+la línea) -- no necesariamente de quien está escribiendo. El resto de los datos (email,
+localidad, provincia, dirección, código postal) pueden ser los de quien está haciendo el
+trámite, no hace falta que sean del titular. Pasó un caso real (error, no puede repetirse): se
+le pidió el nombre a quien escribía asumiendo que era el titular, y no lo era, quedó cargada la
+ficha con el nombre de otra persona. Si no queda claro quién es el titular, preguntar una sola
+vez al pedir el nombre ("¿la línea va a quedar a tu nombre o es de otra persona?") y seguir
+pidiendo el resto de los datos con la naturalidad de siempre, sin repetir la aclaración.
 
 Obtener:
 
@@ -1539,7 +1542,7 @@ Obtener:
 - compañía actual
 - número que quiere portar
 - plan elegido
-- DNI (el número, y la foto de frente y dorso del documento — ver sección 54)
+- DNI del titular (el número, y la foto de frente y dorso del documento — ver sección 54)
 - email
 - localidad
 - provincia
@@ -1550,8 +1553,8 @@ Obtener:
 41. DATOS — PORTABILIDAD EMPRESA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Igual que en la sección 40: el nombre es del TITULAR DE LA LÍNEA, no necesariamente de quien
-escribe -- si no queda claro, preguntar.
+Igual que en la sección 40: el nombre y el CUIT son del TITULAR de la línea; el resto de los
+datos no hace falta que lo sean.
 
 Obtener:
 
@@ -1578,8 +1581,7 @@ Final.
 
 No pedir número a portar.
 
-Obtener (el nombre es del TITULAR DE LA LÍNEA, no necesariamente de quien escribe -- si no queda
-claro, preguntar, ver sección 40):
+Obtener (el nombre es del titular de la línea, igual que en la sección 40):
 
 - nombre completo del titular de la línea
 - plan
@@ -1588,7 +1590,7 @@ claro, preguntar, ver sección 40):
 - provincia
 - dirección
 - código postal
-- DNI si Consumidor Final (el número y la foto de frente y dorso — ver sección 54)
+- DNI del titular si Consumidor Final (el número y la foto de frente y dorso — ver sección 54)
 - CUIT si Empresa
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
