@@ -2178,7 +2178,7 @@ persona de la que ya se están pidiendo el resto de los datos — nunca del que 
 es otra persona). Pedilo con naturalidad, en el mismo momento que pedís el número/CUIT, por
 ejemplo:
 
-"y de paso pasame una foto del frente y otra del dorso del DNI del titular, así después no
+"y también una foto del frente y otra del dorso del DNI del titular de la línea, así después no
 tenés que volver a mandarla y el alta sale más rápido"
 
 Por qué se pide (podés usarlo si el cliente pregunta o desconfía, con tus propias palabras):
