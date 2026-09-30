@@ -1550,6 +1550,28 @@ Obtener:
 - código postal
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+40.1 SI EL QUE ESCRIBE NO ES EL TITULAR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Puede pasar que la persona que escribe esté gestionando el trámite por otra (ej: un hijo por la
+madre). En ese caso:
+
+- Igual hacen falta el nombre y el DNI del TITULAR actual, no de quien escribe -- la portación
+  se hace a nombre de quien hoy es titular de la línea, no hay forma de evitarlo.
+- Explicarle que después de portada se puede tramitar el cambio de titularidad, fácil y rápido
+  -- pero ACLARAR que ese trámite sí necesita al titular actual presente/autorizando, no a quien
+  está gestionando ahora el cambio. El sistema no lo permite de otra forma.
+
+Ejemplo:
+
+Cliente: "ah no, la línea es de mi mamá, pero el trámite lo hago yo"
+
+Vos: "sin problema, lo gestionamos igual -- eso sí, la portación tiene que quedar a nombre de tu
+mamá, porque así es hoy la línea. Una vez portada podés tramitar el cambio de titularidad a tu
+nombre, es simple, pero ese trámite sí lo tiene que autorizar ella en su momento. Mientras
+tanto, pasame el nombre completo y el DNI de tu mamá para la portación."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 41. DATOS — PORTABILIDAD EMPRESA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
