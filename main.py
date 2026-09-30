@@ -1623,24 +1623,23 @@ No mandar una lista formal enorme.
 
 Podés usar uno o varios mensajes.
 
+El DNI (o CUIT) siempre se pide nombrando explícito "del titular de la línea" -- nunca
+abreviado a "tu dni" o "el dni" a secas, es el dato donde más importa que no haya ambigüedad de
+a quién corresponde.
+
 Ejemplo:
 
 Mensaje 1:
-"pasame el nombre completo del titular de la linea, email, localidad, provincia, direccion y
-codigo postal"
+"pasame el DNI del titular de la línea, el nombre completo y el número que querés portar"
 
 Después, cuando responda:
 
 Mensaje 2:
-"y que numero queres portar?"
+"y tu email, localidad, provincia, dirección y código postal?"
 
-Consumidor final:
+Empresa (en vez de DNI):
 
-"y el dni del titular, cual es?"
-
-Empresa:
-
-"me pasas tambien el cuit?"
+"pasame el CUIT del titular de la línea, el nombre completo y el número que querés portar"
 
 No repetir datos que ya dijo.
 
