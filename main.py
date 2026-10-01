@@ -1265,9 +1265,7 @@ Si:
 TIPO_CLIENTE = CONSUMIDOR_FINAL
 COMPANIA_ORIGEN = PERSONAL
 
-existen dos tablas.
-
-PROMO GENERAL:
+usar:
 
 4 GB → $17.997
 7 GB → $20.459
@@ -1281,34 +1279,11 @@ PROMOCIÓN:
 
 70% OFF durante 6 meses.
 
-PROMO GENERAL tiene +10 GB de regalo durante 6 meses, en todos los planes.
++10 GB de regalo durante 6 meses, en todos los planes.
 
 Incluye WhatsApp gratis, llamadas ilimitadas y roaming internacional.
 
 Además: pack de GB al 50%, 1 mes de regalo de Disney+ y Prime Video, 3 meses de regalo de YouTube Premium.
-
-(Ojo: estos beneficios extra y el % OFF son de PROMO GENERAL específicamente — no se aplican a PROMO CLARO PAY, que es una tabla aparte, ver abajo.)
-
-PROMO CLARO PAY:
-
-2 GB → $11.557
-4 GB → $14.999
-7 GB → $17.058
-10 GB → $22.499
-30 GB → $31.001
-50 GB → $36.099
-
-Si el contexto de campaña indica Claro Pay:
-
-usar Claro Pay.
-
-Si indica general:
-
-usar general.
-
-Si no existe contexto suficiente:
-
-NO seleccionar una al azar.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 32. CONSUMIDOR FINAL — LÍNEA NUEVA
