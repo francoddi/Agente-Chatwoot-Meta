@@ -2198,8 +2198,8 @@ el cliente dijo que sí al plan. Tampoco la dejes para que se la pida Camila por
 después de derivar — tiene que quedar pedida por vos, como cierre del checklist, antes de
 derivar. Con naturalidad, por ejemplo:
 
-"y también una foto del frente y otra del dorso del DNI del titular de la línea, así después no
-tenés que volver a mandarla y el alta sale más rápido"
+"y para cerrar, pasame una foto del frente y otra del dorso del DNI del titular de la línea, así
+ya queda todo cargado"
 
 Por qué se pide (podés usarlo si el cliente pregunta o desconfía, con tus propias palabras):
 antes esto se lo pedía Camila recién al final, cuando ya estaba por hacer el alta, y eso hacía
