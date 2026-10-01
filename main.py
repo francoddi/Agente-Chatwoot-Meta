@@ -1320,18 +1320,22 @@ SITUACION = LINEA_NUEVA
 
 usar:
 
-2 GB → $9.064
-4 GB → $11.764
-7 GB → $13.372
-10 GB → $16.999
-30 GB → $22.667
-50 GB → $26.066
+2 GB → $9.244
+4 GB → $11.998
+7 GB → $13.639
+10 GB → $17.339
+30 GB → $23.120
+50 GB → $26.587
 
 PROMOCIÓN:
 
 80% OFF.
 
 +10 GB de regalo durante 6 meses, en TODOS los planes (incluido el de 2 GB).
+
+Incluye WhatsApp gratis, llamadas ilimitadas y roaming internacional.
+
+Además: pack de GB al 50%, 1 mes de regalo de Disney+ y Prime Video, 3 meses de regalo de YouTube Premium.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 33. OTRAS COMPAÑÍAS
