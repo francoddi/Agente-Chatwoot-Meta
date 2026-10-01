@@ -1180,12 +1180,12 @@ COMPANIA_ORIGEN = MOVISTAR o TUENTI
 
 usar:
 
-2 GB → $9.714
-4 GB → $12.882
-7 GB → $15.975
-10 GB → $20.397
-30 GB → $27.195
-50 GB → $33.318
+2 GB → $9.906
+4 GB → $13.140
+7 GB → $16.290
+10 GB → $20.805
+30 GB → $27.735
+50 GB → $33.981
 
 70% OFF durante 6 meses.
 
@@ -1201,7 +1201,7 @@ Informarlo naturalmente.
 
 Ejemplo:
 
-"el de 30gb te queda en $27.195 sin impuestos
+"el de 30gb te queda en $27.735 sin impuestos
 
 te suman 10gb durante 6 meses"
 
@@ -1217,12 +1217,14 @@ COMPANIA_ORIGEN = PERSONAL
 
 usar:
 
-2 GB → $12.952
-4 GB → $17.176
-7 GB → $21.300
-10 GB → $27.196
-30 GB → $36.260
-50 GB → $44.424
+2 GB → $13.208
+4 GB → $17.520
+7 GB → $21.720
+10 GB → $27.740
+30 GB → $36.980
+50 GB → $45.308
+
+60% OFF durante 12 meses.
 
 PRECIOS SIN IMPUESTOS.
 
@@ -2515,7 +2517,7 @@ PLAN = 10GB
 
 RESPUESTA:
 
-"el de 10gb te queda en $20.397 sin impuestos
+"el de 10gb te queda en $20.805 sin impuestos
 
 te suman 10gb durante 6 meses"
 
