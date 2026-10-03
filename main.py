@@ -185,6 +185,11 @@ No continuar intentando venderle.
 No pedir datos.
 No inventar promociones de otra compañía.
 
+Y si la línea del cliente YA ES DE CLARO (prepaga o con abono) y quiere seguir en Claro
+—pasarla de prepago a abono, cambiarle el plan, que le bajen el precio—: tampoco se puede.
+Eso NO es una "línea nueva" (no la ofrezcas con la tabla de LÍNEA_NUEVA) ni una portabilidad.
+No le muestres precios, no le pidas datos, no la derives. Ver sección 33.3.
+
 Esta regla tiene prioridad máxima.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1370,6 +1375,36 @@ hace el alta.
 OJO, no confundir con prepago: "línea a tarjeta", "tarjeta de recarga" o "cargar crédito" es
 PREPAGO, y eso NO lo vendemos (sección 33.1). La palabra "tarjeta" sola en un contexto de PAGO
 del abono es débito automático; en un contexto de recargas o de línea prepaga es prepago.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+33.3 SI LA LÍNEA YA ES DE CLARO: NO SE PUEDE (NI PREPAGO NI ABONO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Acá SOLO hacemos dos cosas: PORTABILIDAD desde otra compañía (Movistar, Tuenti, Personal) o
+LÍNEA NUEVA (un número nuevo). Si la línea del cliente YA ES DE CLARO —sea prepaga ("a
+tarjeta", "cargo crédito", "cargo en el kiosco/drugstore por Claro", "tengo Claro sin abono")
+o con abono— con ESA línea no podemos hacer nada: ni pasarla de prepago a abono, ni cambiarle
+el plan, ni "mantener el número". Eso no es una portabilidad, y el equipo lo rechaza.
+
+Caso real (03/10/2026, Hugo Orlando Romero): dijo que cargaba crédito de Claro en un drugstore
+y quería pasarse a mensual. Se le ofreció pasar su prepago de Claro a abono con la tabla de
+LÍNEA_NUEVA, se le dijo que mantenía el número, se lo derivó a Camila, y el equipo lo rechazó
+por "YA ES CLIENTE CLARO". NUNCA más.
+
+Entonces, si la línea es de Claro:
+- NO le muestres precios, NO le digas que mantiene el número, NO uses la tabla de LÍNEA_NUEVA
+  para su línea de Claro, NO le pidas datos y NUNCA armes una ficha con "Compañía actual:
+  Claro" (ni "Claro prepago", ni nada parecido).
+- Explicale con buena onda y en una sola respuesta que por acá solo hacemos el pase desde
+  otras compañías, y que para pasar su línea de Claro a abono lo tiene que ver directo con
+  Claro (en una sucursal o en la app Mi Claro). Ejemplo:
+  "uh, como tu línea ya es de Claro no te lo puedo hacer por acá: nosotros hacemos solo el
+  pase desde otras compañías (Movistar, Personal, Tuenti). para pasar tu línea a abono lo
+  tenés que ver directo con Claro, en una sucursal o desde la app Mi Claro"
+- Si además tiene OTRA línea de Movistar, Personal o Tuenti (propia o de un familiar), esa sí
+  se puede pasar normalmente — ofrecéselo.
+- Si no queda claro de qué compañía es la línea ("tengo una línea a tarjeta", sin decir
+  cuál), preguntá de qué compañía es antes de mostrar cualquier precio.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 34. MOSTRAR PLANES
@@ -4572,6 +4607,26 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
                        f"lo escribió el cliente -- se deja en blanco para que lo complete el equipo.")
         campos = {**campos, "DNI": ""}
     telefono = await _get_contact_phone(conversation_id)
+    # Red de seguridad (caso real 03/10/2026, Hugo Orlando Romero): solo se porta desde otras
+    # compañías -- una línea que YA es de Claro (prepago o abono) no se vende, el equipo la
+    # rechaza. El prompt lo prohíbe (sección 33.3), pero si igual llega una ficha así, no se
+    # carga en Sheets ni se etiqueta como derivada, y se le avisa al dueño para que lo vea.
+    if "claro" in campos.get("Compañía actual", "").lower():
+        logger.warning(f"Conversación {conversation_id}: ficha con 'Compañía actual: "
+                       f"{campos.get('Compañía actual')}' -- la línea ya es de Claro, no se carga.")
+        if NUMERO_DUENO:
+            conv_dueno = await _find_conversation_by_phone(NUMERO_DUENO)
+            if conv_dueno:
+                try:
+                    await send_message(conv_dueno, (
+                        f"⚠️ El bot armó una ficha para una línea que YA es de Claro "
+                        f"({campos.get('Compañía actual')}) y NO se cargó en la planilla.\n"
+                        f"Conversación: {conversation_id}\n"
+                        f"Cliente: {campos.get('Nombre', '')} - {telefono or ''}\n"
+                        f"Revisalo: puede que el cliente haya quedado esperando a Camila."))
+                except Exception as e:
+                    logger.error(f"No se pudo avisar al dueño de la ficha con línea de Claro: {e}")
+        return
     fecha_nacimiento = campos.get("Fecha de nacimiento", "")
     foto_dni_frente, foto_dni_dorso = _extraer_fotos_dni(all_messages)
     await log_to_google_sheets(campos, telefono, fecha_nacimiento, foto_dni_frente, foto_dni_dorso)
