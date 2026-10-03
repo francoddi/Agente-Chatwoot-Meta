@@ -3613,6 +3613,90 @@ async def _pares_numero_telefono_existentes() -> set:
     return pares
 
 
+# Columnas (índice dentro de `row` en log_to_google_sheets) que una ficha corregida puede
+# actualizar en una fila ya cargada: Nombre, DNI, F. nac, fotos, Email, Empresa, Segmento,
+# Provincia, Localidad, Dirección, CP y Plan. Las que completa el equipo (Estado, Vendedora,
+# Fecha portación, Altura, Piso) y la fecha de venta nunca se tocan.
+_COLUMNAS_ACTUALIZABLES = [4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 18, 21]
+_COLUMNAS_DEL_TITULAR = [5, 6]  # DNI y F. nac: si cambia el titular, los viejos ya no sirven
+
+
+async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> None:
+    """Cuando llega una ficha para un (número a portar, teléfono) que YA tiene fila, actualiza
+    esa fila con los datos que cambiaron, en vez de descartar la ficha nueva entera.
+
+    Caso real (02/10/2026, Bot 2): la clienta dio un nombre ("Dolores Ortiga"), se cargó la
+    fila, y después aclaró que la titular era otra persona (Margarita de la Cruz Alvarez, la
+    del DNI de las fotos). El bot armó una ficha corregida, pero el chequeo de duplicados la
+    salteó entera porque el número y el teléfono eran los mismos: la fila quedó con el nombre
+    equivocado, y con DNI y fecha de nacimiento que no eran de ella.
+
+    Reglas: solo se pisa una celda si el dato nuevo NO está vacío y es distinto del actual (una
+    ficha corregida que omite un dato no borra lo que ya estaba). Excepción: si cambió el
+    nombre del titular, el DNI y la F. nac viejos son de otra persona -- si la ficha nueva no
+    los trae, se vacían para que el equipo los complete, en vez de dejar datos de otro. Si las
+    dos fichas son iguales (el caso original del chequeo: dos webhooks casi simultáneos con la
+    misma ficha), no se toca nada."""
+    token = await _get_sheets_access_token()
+    if not token:
+        return
+    base = f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}/values"
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!T:U', safe='')}",
+                                    headers=headers)
+            resp.raise_for_status()
+            filas = resp.json().get("values", []) or []
+            clave = (_digits_only(numero), _digits_only(telefono))
+            fila_n = None
+            for idx in range(len(filas) - 1, 0, -1):  # la más reciente primero, salta el header
+                f = filas[idx]
+                if (_digits_only(f[0] if f else ""), _digits_only(f[1] if len(f) > 1 else "")) == clave:
+                    fila_n = idx + 1
+                    break
+            if fila_n is None:
+                return
+            # FORMULA para comparar las fotos por su =HYPERLINK(...) y no por el texto visible.
+            resp = await client.get(
+                f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}:V{fila_n}', safe='')}",
+                headers=headers, params={"valueRenderOption": "FORMULA"})
+            resp.raise_for_status()
+            actual = (resp.json().get("values") or [[]])[0]
+
+            def _normalizar(v) -> str:
+                return str(v).strip().lstrip("'").strip()
+
+            def _celda(i: int) -> str:
+                return _normalizar(actual[i]) if i < len(actual) else ""
+
+            titular_cambio = bool(_normalizar(row[4])) and _normalizar(row[4]).lower() != _celda(4).lower()
+            cambios = []
+            for i in _COLUMNAS_ACTUALIZABLES:
+                nuevo = _normalizar(row[i])
+                if not nuevo and titular_cambio and i in _COLUMNAS_DEL_TITULAR and _celda(i):
+                    cambios.append((i, ""))
+                elif nuevo and nuevo != _celda(i):
+                    cambios.append((i, row[i]))
+            if not cambios:
+                logger.info(f"Fila {fila_n} de Sheets ya está igual a la ficha nueva, no se toca.")
+                return
+            body = {"valueInputOption": "USER_ENTERED", "data": [
+                {"range": f"{GOOGLE_SHEETS_SHEET_NAME}!{chr(65 + i)}{fila_n}", "values": [[valor]]}
+                for i, valor in cambios
+            ]}
+            resp = await client.post(f"{base}:batchUpdate", headers=headers, json=body)
+            resp.raise_for_status()
+        logger.info(f"Fila {fila_n} de Sheets actualizada con la ficha corregida: "
+                    f"{', '.join(f'{chr(65 + i)}={_normalizar(v)[:40]!r}' for i, v in cambios)}")
+        if any(i in (8, 9) for i, _ in cambios):
+            await _forzar_links_visibles(f"{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}")
+    except Exception as e:
+        logger.error(f"No se pudo actualizar la fila existente de {numero!r}/{telefono!r} con la "
+                     f"ficha corregida: {e}")
+        await _avisar_error_sheets(row)
+
+
 async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
                                  foto_dni_frente: str = "", foto_dni_dorso: str = "") -> None:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
@@ -3656,8 +3740,9 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     # Chequeo de duplicados (17/09/2026, caso real: Patricia Susana Deheza quedó cargada DOS
     # veces, 6 filas para 3 números -- una carrera entre dos webhooks casi simultáneos, cada uno
     # generando y registrando su propia ficha completa). Antes de agregar cada fila, se chequea
-    # si YA existe una fila con el mismo (número a portar, número de contacto) -- si existe, se
-    # saltea esa fila puntual en vez de duplicarla. No bloquea por conversación entera (eso
+    # si YA existe una fila con el mismo (número a portar, número de contacto) -- si existe, no
+    # se duplica: se actualiza esa fila con lo que haya cambiado (ver _actualizar_fila_existente,
+    # caso real 02/10/2026 de una ficha corregida que se perdía). No bloquea por conversación entera (eso
     # rompería el caso legítimo de una segunda línea agregada más tarde en la misma charla), solo
     # evita repetir la MISMA línea ya cargada.
     ya_cargados = await _pares_numero_telefono_existentes()
@@ -3688,11 +3773,6 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
 
     for i, numero in enumerate(numeros):
         clave = (_digits_only(numero), _digits_only(telefono))
-        if clave in ya_cargados:
-            logger.warning(f"log_to_google_sheets: se saltea la fila de {campos.get('Nombre', '')!r} "
-                            f"(número {numero!r}, teléfono {telefono!r}) -- ya existe una fila "
-                            f"igual en el Sheet, no se duplica.")
-            continue
         plan_fila = plan_por_numero[i] if plan_por_numero else campos.get("Plan elegido", "")
         row = [
             "",  # Estado (lo completa el equipo)
@@ -3719,6 +3799,14 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             plan_fila,
             # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
         ]
+        if clave in ya_cargados:
+            # Ya hay fila para esta línea: no se duplica, pero si la ficha trae datos corregidos
+            # (otro titular, otra foto, otra dirección...) se actualiza esa fila.
+            logger.warning(f"log_to_google_sheets: ya existe una fila para {campos.get('Nombre', '')!r} "
+                            f"(número {numero!r}, teléfono {telefono!r}) -- no se duplica, se "
+                            f"actualiza con los datos que hayan cambiado.")
+            await _actualizar_fila_existente(numero, telefono, row)
+            continue
         updated_range = await append_google_sheets_row(row)
         if updated_range:
             await _forzar_links_visibles(updated_range)
