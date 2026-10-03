@@ -123,13 +123,53 @@ internamente, pero los sistemas de SMS genéricos de Meta no, y lo mandan mal si
 - `git push` a veces lo bloquea el clasificador automático sin motivo claro — si pasa, pedirle a
   Francisco que lo corra él mismo en PowerShell (`git push`), funciona igual.
 
-## Pendientes al cierre de esta sesión (02/10/2026)
+## Sesión del 03/10/2026 (desde la Mac) — qué cambió
 
-- **Saldo de OpenRouter bajo** (~$8 USD la última vez que se chequeó) — cargar más antes de que
-  se agote y los bots se queden sin poder responder.
-- Confirmar que Bot 3 volvió a recibir mensajes normalmente después de arreglar la verificación.
-- Bot 4 y Bot 5: esperar a que Meta permita crear el Usuario del Sistema en cada Business
-  Portfolio nuevo (problema de antigüedad de cuenta, no algo que se pueda apurar).
-- Precios actualizados el 01-02/10/2026 (Movistar y Personal Consumidor Final ahora comparten
-  tabla, 70% off, sin plan de 2GB; Línea Nueva 80% off; Empresa Movistar 70%/Personal 60%) — ya
-  probados en vivo y desplegados en Bot 1/2/3.
+- **Precios**: Movistar/Tuenti y Personal Consumidor Final (DNI) pasaron de 70% a **65% off**
+  (misma tabla: 4GB $20.997, 7GB $23.870, 10GB $30.345, 30GB $40.460, 50GB $46.529, sin 2GB, +10GB
+  de regalo x 6 meses). Empresa y Línea nueva sin cambios. Desplegado y verificado en Bot 1 y 2.
+- **Cliente que ya es de Claro (prepago o abono)**: NO se le vende nada con esa línea (el equipo
+  lo rechaza: "YA ES CLIENTE CLARO"). Antes el bot lo trataba como "línea nueva" (caso Hugo
+  Orlando Romero). Regla agregada en la sección 0 y 33.3 del prompt + red de seguridad en
+  `_registrar_derivacion_completa` (no carga en Sheets fichas con "Compañía actual: Claro...").
+- **Ficha corregida = actualiza la fila existente** (`_actualizar_fila_existente`): antes el
+  chequeo de duplicados (número, teléfono) descartaba la ficha nueva entera (caso Dolores
+  Ortiga → en realidad Margarita de la Cruz Alvarez).
+- **Contenido bloqueado por el modelo**: si un cliente manda una imagen que Gemini bloquea
+  (PROHIBITED_CONTENT, OpenRouter devuelve 200 con "error" y sin "choices"), `call_openrouter`
+  falla, reintenta y el barrido la reintenta cada 5 min avisando al dueño cada vez. Pasó con
+  material ilegal (abuso infantil): se puso `bot_off`, se bloqueó el contacto y se eliminó la
+  conversación a pedido de Francisco. PENDIENTE: que el código no reintente ese tipo de error
+  y avise una sola vez como "contenido bloqueado", no como falla técnica.
+- **Análisis de conversión (02-03/10)**: Bot 1 y Bot 2 tienen el mismo % de gente que contesta
+  el saludo (~75%); Bot 1 lleva más gente a ver precios pero deriva menos. Llegan de anuncios
+  distintos (Bot 1: "Quiero pasarme a Claro manteniendo mi número 😀", público Movistar muy
+  sensible al precio / jubilados; Bot 2: "Hola, quiero pasarme a Claro aprovechando la promo
+  ☺️"). En Bot 1 varias ventas quedan trabadas en el último paso (foto del DNI) y, con el
+  seguimiento apagado, nadie se los recuerda. OJO: la foto obligatoria fue decisión explícita
+  de Francisco (commit 1c6adef) — no cambiarla sin que él lo pida.
+
+## Cómo acceder a los Chatwoot desde la Mac
+
+- La red de la Mac (DNS del router) NO resuelve los dominios `*.bzovbc.easypanel.host`
+  (NXDOMAIN), aunque existen (con DNS de Google resuelven a la IP de la VPS, 13.140.151.112).
+  Usar `curl --resolve <host>:443:13.140.151.112 ...` para llegar igual.
+- Chatwoot por bot (account_id 1 en todos; los tokens los pasa Francisco por chat, no se commitean):
+  Bot 1 `agente-1-lth-chatwoot`, Bot 2 `agente-2-lth-chatwoot`, Bot 3 `agente-2-lth-chatwoot-3`
+  (todos `.bzovbc.easypanel.host`).
+- El proyecto en la Mac está en `~/Documents/Agente-Chatwoot-Meta` (se movió del Escritorio).
+  `git push` funciona: GitHub CLI instalado en `~/.local/bin/gh` y logueado como francoddi.
+- El `.env` local apunta al Chatwoot viejo (Celtabot); OpenRouter y Sheets son los compartidos.
+
+## Pendientes al cierre (03/10/2026)
+
+- **Saldo de OpenRouter**: ~71 USD (se cargó el 02/10 tras quedarse sin saldo a la medianoche).
+- Bot 3: encendido pero sin tráfico desde el 02/10 (Francisco lo tiene apagado).
+- Bot 4 y Bot 5: esperar a que Meta permita crear el Usuario del Sistema (antigüedad del
+  Business Portfolio). Bot 4: WABA y Phone Number ID ya existen, falta el token permanente.
+- No reintentar ante contenido bloqueado por el modelo (ver arriba).
+- Que el bot no saque datos de una foto que no es un DNI (caso Margarita: tomó una selfie como
+  frente del DNI e inventó la fecha de nacimiento). Limitación conocida de `_extraer_fotos_dni`.
+- Inconsistencias menores del prompt: la sección 2 todavía describe el flujo viejo ("cliente
+  reenvía el mensaje → Camila pide DNI"); la sección 17 lista saludos con contenido extra que la
+  regla del código prohíbe; el ejemplo de la sección 64 pide datos en otro orden que la 43.
