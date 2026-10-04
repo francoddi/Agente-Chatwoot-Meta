@@ -21,6 +21,7 @@ import os
 import random
 import re
 import time
+import unicodedata
 from datetime import date
 from datetime import datetime
 from datetime import time as dtime
@@ -3705,10 +3706,24 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> N
             def _celda(i: int) -> str:
                 return _normalizar(actual[i]) if i < len(actual) else ""
 
-            titular_cambio = bool(_normalizar(row[4])) and _normalizar(row[4]).lower() != _celda(4).lower()
+            def _palabras(nombre: str) -> set:
+                sin_tildes = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
+                return set(sin_tildes.lower().split())
+
+            # Mismo titular aunque el nombre venga en otro orden ("Acosta Jonathan Ernesto" vs
+            # "Jonathan Ernesto Acosta") o sin tildes.
+            titular_cambio = bool(_normalizar(row[4])) and _palabras(_normalizar(row[4])) != _palabras(_celda(4))
             cambios = []
             for i in _COLUMNAS_ACTUALIZABLES:
                 nuevo = _normalizar(row[i])
+                if i == 4 and not titular_cambio:
+                    continue  # mismo titular: el nombre queda como estaba aunque venga en otro orden
+                if i in _COLUMNAS_DEL_TITULAR and not titular_cambio and _celda(i):
+                    # DNI y F. nac ya cargados solo se tocan si cambió el titular (caso real
+                    # 04/10/2026: el modelo regeneró una ficha sin ver las fotos y con la fecha
+                    # de nacimiento inventada -- no puede pisar la buena). Una corrección puntual
+                    # de esos datos va por [CORRECCION_DATO], no por acá.
+                    continue
                 if not nuevo and titular_cambio and i in _COLUMNAS_DEL_TITULAR and _celda(i):
                     cambios.append((i, ""))
                 elif nuevo and nuevo != _celda(i):
@@ -3881,6 +3896,25 @@ async def _fetch_conversation_messages(conversation_id, minimo: int = None) -> l
     return todos
 
 
+def _describir_adjuntos(attachments: list) -> str:
+    """Describe en palabras los adjuntos de un mensaje del cliente, para el historial."""
+    tipos = []
+    for a in attachments:
+        tipo_archivo = a.get("file_type")
+        extension = (a.get("extension") or "").lower()
+        if tipo_archivo == "image":
+            tipos.append("un sticker" if extension == "webp" else "una imagen")
+        elif tipo_archivo == "audio":
+            tipos.append("una nota de voz")
+        elif tipo_archivo == "file" and extension == "pdf":
+            tipos.append("un PDF")
+        elif tipo_archivo == "video":
+            tipos.append("un video")
+        else:
+            tipos.append("un archivo")
+    return ", ".join(tipos) or "un adjunto"
+
+
 def _map_history(messages: list) -> list:
     """Mapea mensajes de Chatwoot al historial que espera el LLM.
 
@@ -3894,6 +3928,15 @@ def _map_history(messages: list) -> list:
             continue
         mtype = m.get("message_type")
         content = (m.get("content") or "").strip()
+        # Caso real (04/10/2026, Bot 2, conv 111): antes, un mensaje sin texto (una foto sola,
+        # como casi siempre la del DNI) se descartaba del historial. En el turno siguiente el
+        # modelo veía que había pedido las fotos pero nunca que el cliente las mandó, y le
+        # volvía a pedir "las fotos" a alguien que ya las había mandado y ya estaba derivado.
+        # Ahora cada adjunto del cliente queda como una nota en el historial (sin volver a
+        # mandar la imagen en sí: eso se hace solo en el turno en que llega).
+        if mtype == 0 and m.get("attachments"):
+            nota = f"[El cliente envió {_describir_adjuntos(m['attachments'])}]"
+            content = f"{nota} {content}" if content else nota
         if not content:
             continue
         if mtype == 0:
@@ -4708,6 +4751,24 @@ async def process_conversation(conversation_id: int) -> None:
                 kinds.append(kind)
 
             notas_sistema = [{"role": "system", "content": build_camila_availability_note()}]
+            if DERIVADO_LABEL in (labels or []):
+                # Caso real (04/10/2026, Bot 2, conv 111): la ficha interna no se guarda en
+                # Chatwoot (ver más abajo), así que el modelo no la ve en el historial y no
+                # "recuerda" haberla generado -- ante un simple "ok" del cliente ya derivado,
+                # volvía a generarla (con la fecha de nacimiento inventada, porque las fotos ya no
+                # las ve) o le volvía a pedir datos. Esto también rompía la detección de la
+                # sección 49.2 (corrección post-derivación), que buscaba la ficha en el historial.
+                notas_sistema.append({
+                    "role": "system",
+                    "content": (
+                        "[Nota interna, no la muestres] A este cliente YA lo derivaste a Camila en "
+                        "esta conversación y su ficha YA quedó registrada (no la ves en el historial "
+                        "porque es interna). NO vuelvas a generar la ficha ni a pedirle datos o fotos "
+                        "que ya mandó. Si te corrige un dato, usá la marca [CORRECCION_DATO] de la "
+                        "sección 49.2. Solo armá una ficha nueva si suma OTRA línea para portar o es "
+                        "otra persona distinta."
+                    ),
+                })
             if not history_raw:
                 # Primer intercambio real de la conversación -> se sugiere un saludo elegido al azar
                 # por código (ver _SALUDOS_INICIALES), no queda en manos del modelo variar solo.
