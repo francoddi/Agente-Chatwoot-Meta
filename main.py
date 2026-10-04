@@ -4875,6 +4875,41 @@ async def process_conversation(conversation_id: int) -> None:
         await _avisar_fallo_respuesta(conversation_id, str(ultimo_error))
         return
 
+    # Derivó SIN ficha (caso real 04/10/2026, Bot 1, conv 79, Julio César Patiño): el bot le
+    # mandó el link de Camila pero no generó la ficha interna, así que la venta no se cargó en
+    # Sheets ni se etiquetó, sin ningún aviso (el barrido solo mira el ÚLTIMO mensaje, y el
+    # cliente siguió charlando). Ahora, si pasa esto en una charla que ya llegó a pedir datos, se
+    # le pide la ficha al modelo en una segunda llamada interna (no se le manda nada al cliente)
+    # y se registra normalmente; si ni así sale, se avisa al dueño para cargarla a mano.
+    if (NUMERO_CAMILA and NUMERO_CAMILA in reply and "Hola Camila, quiero avanzar" not in reply
+            and DERIVADO_LABEL not in (labels or []) and _cliente_confirmo_plan(all_messages)):
+        logger.warning(f"Conversación {conversation_id}: el bot derivó sin generar la ficha -- se "
+                       f"le pide la ficha al modelo aparte.")
+        ficha_recuperada = ""
+        try:
+            ficha_recuperada = await call_openrouter(messages + [
+                {"role": "assistant", "content": reply},
+                {"role": "user", "content": (
+                    "[Nota interna del sistema, NO es un mensaje del cliente] Acabás de derivar a "
+                    "este cliente a Camila pero no generaste la ficha interna. Respondé ÚNICAMENTE "
+                    "con la ficha interna completa (secciones 50/51/52), empezando exactamente con "
+                    "'Hola Camila, quiero avanzar', sin ningún otro texto. Esto no se le manda al "
+                    "cliente."
+                )},
+            ])
+        except Exception as e:
+            logger.error(f"Conversación {conversation_id}: no se pudo recuperar la ficha: {e}")
+        if "Hola Camila, quiero avanzar" in ficha_recuperada:
+            ficha_recuperada = ficha_recuperada[ficha_recuperada.index("Hola Camila, quiero avanzar"):]
+            reply = f"{reply}\n---\n{ficha_recuperada}"
+            bubbles = bubbles + [ficha_recuperada]
+        else:
+            await _avisar_fallo_respuesta(
+                conversation_id,
+                "El bot derivó al cliente (le mandó el link de Camila) pero no generó la ficha, "
+                "así que NO quedó cargado en Sheets -- revisar la conversación y cargarlo a mano.",
+            )
+
     # Si el mensaje incluye la ficha de datos (el arranque exacto de la plantilla), es un
     # handoff real -> se le agrega la etiqueta, se registra la fila en Google Sheets y se avisa
     # en el canal de seguimiento. Antes se chequeaba "NUMERO_CAMILA in reply" (el link de wa.me)
