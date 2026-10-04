@@ -2993,6 +2993,12 @@ async def _iniciar_barrido_pendientes():
     asyncio.create_task(_barrido_pendientes_loop())
 
 
+@app.on_event("startup")
+async def _iniciar_recuperacion_ventas():
+    """Arranca el revisor automático de ventas trabadas (ver _recuperacion_ventas_loop)."""
+    asyncio.create_task(_recuperacion_ventas_loop())
+
+
 def _chatwoot_base(conversation_id) -> str:
     return f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations/{conversation_id}"
 
@@ -4430,6 +4436,156 @@ async def _revisar_conversaciones_sin_responder() -> None:
     if encontradas:
         logger.warning(f"Barrido de pendientes: se encontraron y reprogramaron {encontradas} "
                         f"conversación(es) sin responder.")
+
+
+# --------------------------------------------------------------------------------------
+# Revisor automático de ventas trabadas (04/10/2026, a pedido explícito: "algo corriendo en
+# piloto automático que recupere las ventas donde el bot se confundió"). Casos reales del mismo
+# día: Irma Pascal (todo el checklist completo, fotos incluidas, y el bot la dejó "para el lunes")
+# y Julio César Patiño (el bot lo derivó sin generar la ficha). Las reglas del prompt cubren los
+# errores que ya conocemos; esto es la red para los que todavía no aparecieron.
+#
+# Cada RECUPERACION_INTERVALO_SEGUNDOS revisa las conversaciones abiertas, NO derivadas, de las
+# últimas 24hs, donde el bot ya pidió datos del checklist y el cliente ya mandó fotos/PDF, y que
+# llevan al menos RECUPERACION_QUIETUD_SEGUNDOS sin movimiento (para no meterse en una charla en
+# curso). A cada una se la hace releer al modelo (con las fotos) y, si el cliente ya dio todo y
+# quiere avanzar, genera la ficha: se registra igual que una derivación normal (Sheets +
+# etiqueta) y se le avisa al dueño para que alguien lo contacte. A propósito NO le manda nada al
+# cliente (no suma mensajes automáticos de cara a WhatsApp).
+# --------------------------------------------------------------------------------------
+RECUPERACION_VENTAS_ENABLED = os.getenv("RECUPERACION_VENTAS_ENABLED", "true").lower() == "true"
+RECUPERACION_INTERVALO_SEGUNDOS = float(os.getenv("RECUPERACION_INTERVALO_SEGUNDOS", "600"))
+RECUPERACION_QUIETUD_SEGUNDOS = float(os.getenv("RECUPERACION_QUIETUD_SEGUNDOS", "600"))
+
+# conversación -> id del último mensaje ya revisado (para no volver a gastar una consulta al
+# modelo en la misma charla si no cambió nada). Vive en memoria: tras un reinicio se revisan
+# de nuevo, sin riesgo de duplicar porque una venta recuperada queda con la etiqueta de derivado.
+_recuperacion_revisadas: dict = {}
+
+_PEDIDO_REVISION = (
+    "[Nota interna del sistema, NO es un mensaje del cliente] Revisión automática de ventas: "
+    "releé TODA la conversación de arriba (las fotos que mandó el cliente están a continuación). "
+    "Si el cliente YA dio todos los datos del checklist que le corresponde (secciones 44/45/42, "
+    "incluida la foto del DNI) y quiere pasarse a Claro, pero todavía NO se lo derivó (o se le "
+    "pasó el link de Camila sin generar la ficha), respondé ÚNICAMENTE con la ficha interna "
+    "completa (secciones 50/51/52), empezando exactamente con 'Hola Camila, quiero avanzar', sin "
+    "ningún otro texto. En CUALQUIER otro caso (falta algún dato, no quiere avanzar, ya es cliente "
+    "de Claro, es prepago, etc.) respondé ÚNICAMENTE: NO"
+)
+
+
+async def _recuperacion_ventas_loop() -> None:
+    if not RECUPERACION_VENTAS_ENABLED:
+        return
+    while True:
+        try:
+            await asyncio.sleep(RECUPERACION_INTERVALO_SEGUNDOS)
+            await _revisar_ventas_trabadas()
+        except Exception:
+            logger.exception("Error en el revisor automático de ventas trabadas.")
+
+
+def _es_candidata_a_recuperar(messages: list) -> bool:
+    """Filtro barato (sin llamar al modelo): el bot ya pidió datos del checklist y el cliente
+    mandó al menos una foto o PDF -- las fotos del DNI se piden al final, así que sin ellas
+    seguro falta algo."""
+    if not _cliente_confirmo_plan(messages):
+        return False
+    return any(
+        m.get("message_type") == 0 and not m.get("private")
+        and any(a.get("file_type") == "image"
+                or (a.get("file_type") == "file" and (a.get("extension") or "").lower() == "pdf")
+                for a in (m.get("attachments") or []))
+        for m in messages
+    )
+
+
+async def _revisar_conversacion_para_recuperar(conversation_id: int, messages: list):
+    """Le hace releer la conversación al modelo (con las últimas fotos/PDF del cliente) y
+    devuelve los campos de la ficha si hay una venta lista sin derivar, o None."""
+    mensajes = sorted([m for m in messages if not m.get("private")], key=lambda m: m.get("id") or 0)
+    con_adjunto = [m for m in mensajes if m.get("message_type") == 0 and m.get("attachments")]
+    adjuntos = []
+    for m in con_adjunto[-3:]:  # las últimas fotos: ahí suelen estar el frente y el dorso del DNI
+        contenido, _ = await build_message_content(m)
+        adjuntos.append({"role": "user", "content": contenido})
+    pedido = (
+        [{"role": "system", "content": SYSTEM_PROMPT},
+         {"role": "system", "content": build_camila_availability_note()}]
+        + _map_history(mensajes)
+        + adjuntos
+        + [{"role": "user", "content": _PEDIDO_REVISION}]
+    )
+    respuesta = await call_openrouter(pedido)
+    if "Hola Camila, quiero avanzar" not in respuesta:
+        return None
+    campos = _parse_ficha_fields(respuesta[respuesta.index("Hola Camila, quiero avanzar"):])
+    return campos if campos.get("Nombre") else None
+
+
+async def _revisar_ventas_trabadas() -> None:
+    url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
+    ahora = time.time()
+    for page in range(1, 31):
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.get(url, headers=_chatwoot_headers(),
+                                         params={"status": "open", "page": page})
+                resp.raise_for_status()
+                payload = resp.json().get("data", {}).get("payload", []) or []
+        except Exception as e:
+            logger.error(f"Revisor de ventas: no se pudo traer la página {page}: {e}")
+            return
+        if not payload:
+            return
+        for c in payload:
+            conversation_id = c.get("id")
+            labels = c.get("labels") or []
+            ultima = c.get("last_activity_at") or 0
+            if (not conversation_id or DERIVADO_LABEL in labels or PAUSE_LABEL in labels
+                    or ahora - ultima > 24 * 3600 or ahora - ultima < RECUPERACION_QUIETUD_SEGUNDOS):
+                continue
+            existente = _pending_tasks.get(conversation_id)
+            if existente and not existente.done():
+                continue  # el bot la está atendiendo ahora mismo
+            ultimo_msj = (c.get("last_non_activity_message") or {}).get("id")
+            if _recuperacion_revisadas.get(conversation_id) == ultimo_msj:
+                continue  # ya se revisó así como está
+            try:
+                messages = await _fetch_conversation_messages(conversation_id)
+                if not _es_candidata_a_recuperar(messages):
+                    _recuperacion_revisadas[conversation_id] = ultimo_msj
+                    continue
+                campos = await _revisar_conversacion_para_recuperar(conversation_id, messages)
+                _recuperacion_revisadas[conversation_id] = ultimo_msj
+                if not campos:
+                    continue
+                logger.warning(f"Revisor de ventas: conversación {conversation_id} tenía una venta "
+                               f"lista sin derivar ({campos.get('Nombre')!r}) -- se registra.")
+                # La fecha de nacimiento NO se carga en una venta recuperada: al releer fotos
+                # viejas (a veces borrosas o giradas) el modelo la leyó mal en las pruebas (caso
+                # Julio César Patiño: 25/10/1983 en vez de 20/11/1980). Nadie está mirando en el
+                # momento, así que mejor vacía y que el equipo la complete viendo la foto.
+                campos = {**campos, "Fecha de nacimiento": ""}
+                await asyncio.shield(_registrar_derivacion_completa(conversation_id, campos, messages))
+                recibio_link = any(m.get("message_type") == 1 and NUMERO_CAMILA
+                                   and NUMERO_CAMILA in (m.get("content") or "") for m in messages)
+                telefono = await _get_contact_phone(conversation_id)
+                if NUMERO_DUENO and "claro" not in campos.get("Compañía actual", "").lower():
+                    conv_dueno = await _find_conversation_by_phone(NUMERO_DUENO)
+                    if conv_dueno:
+                        await send_message(conv_dueno, (
+                            f"✅ Venta recuperada automáticamente (el bot no la había derivado bien).\n"
+                            f"Cliente: {campos.get('Nombre', '')} - {telefono or ''}\n"
+                            f"Conversación: {conversation_id}\n"
+                            f"Ya quedó cargada en la planilla (la fecha de nacimiento quedó vacía: "
+                            f"completala mirando la foto del DNI). "
+                            + ("El cliente ya tiene el link de Camila."
+                               if recibio_link else
+                               "El cliente todavía NO recibió el link de Camila: que alguien lo contacte.")
+                        ))
+            except Exception as e:
+                logger.error(f"Revisor de ventas: error revisando la conversación {conversation_id}: {e}")
 
 
 # --------------------------------------------------------------------------------------

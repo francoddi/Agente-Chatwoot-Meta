@@ -149,6 +149,30 @@ internamente, pero los sistemas de SMS genéricos de Meta no, y lo mandan mal si
   seguimiento apagado, nadie se los recuerda. OJO: la foto obligatoria fue decisión explícita
   de Francisco (commit 1c6adef) — no cambiarla sin que él lo pida.
 
+## Sesión del 04/10/2026 — protecciones contra ventas perdidas
+
+- **Fotos invisibles en el historial** (`_map_history`): los mensajes sin texto (foto sola del
+  DNI) se descartaban; el bot volvía a pedir fotos ya mandadas o se confundía. Ahora cada
+  adjunto queda como nota ("[El cliente envió una imagen]").
+- **Nota de "ya derivado"**: la ficha interna no está en el historial; si la conversación tiene
+  la etiqueta `ddd`, se le avisa al modelo para que no la regenere (la regeneraba con la fecha
+  de nacimiento inventada). `_actualizar_fila_existente` no pisa nombre/DNI/F. nac si es el
+  mismo titular (comparación por palabras, sin orden ni tildes).
+- **Derivó sin ficha** → se pide la ficha en una segunda llamada interna y se registra; si no
+  sale, aviso al dueño (caso Julio César Patiño, recuperado a mano).
+- **Objeciones de plata** (sección 56.2): no se paga nada ahora, la primera factura llega un mes
+  después de recibir el chip; si el checklist está completo se deriva en el mismo turno (caso
+  Irma Pascal, recuperada a mano).
+- **Revisor automático de ventas trabadas** (`_recuperacion_ventas_loop`, cada 10 min,
+  `RECUPERACION_VENTAS_ENABLED`): conversaciones no derivadas de las últimas 24hs, con datos
+  pedidos y fotos recibidas, quietas hace 10+ min → el modelo relee todo con las fotos y, si la
+  venta está lista, se registra (F. nac vacía a propósito) y se avisa al dueño. NO le escribe al
+  cliente. Probado: recupera Julio e Irma, no recupera casos incompletos ni clientes de Claro.
+- Auditoría de las 216 conversaciones de Bot 1/2/3: solo esos 2 casos perdidos, ambos recuperados.
+- Bot 3: número +5492236022567 reconectado en la cuenta de WhatsApp NUEVA "Agente"
+  (WABA 4383781345169549, phone_number_id 1397482693449770); la WABA vieja 1076862111899245 quedó
+  vacía. El PIN de dos pasos lo tiene Francisco (no se commitea).
+
 ## Cómo acceder a los Chatwoot desde la Mac
 
 - La red de la Mac (DNS del router) NO resuelve los dominios `*.bzovbc.easypanel.host`
