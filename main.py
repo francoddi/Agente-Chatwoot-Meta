@@ -2997,6 +2997,24 @@ PORT = int(os.getenv("PORT", "8000"))
 # hay una pausa real más larga que lo que tarda una generación completa.
 MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "0"))
 
+# Espera extra al azar ANTES de mandar cada respuesta, además de lo que tarda el modelo en pensar
+# (04/10/2026, a pedido explícito). Medido: el 75% de las respuestas salían entre 10 y 20 segundos
+# después del mensaje del cliente, sin importar si eran un "dale" o la tabla de precios completa
+# ni la hora (también de madrugada) -- un ritmo muy parejo, de máquina. Una persona tarda menos en
+# un mensaje corto y más en uno largo. Mientras espera se vuelve a mostrar "escribiendo...".
+RESPUESTA_CORTE_CARACTERES = int(os.getenv("RESPUESTA_CORTE_CARACTERES", "160"))
+RESPUESTA_ESPERA_CORTA = (float(os.getenv("RESPUESTA_ESPERA_CORTA_MIN", "0")),
+                          float(os.getenv("RESPUESTA_ESPERA_CORTA_MAX", "5")))
+RESPUESTA_ESPERA_LARGA = (float(os.getenv("RESPUESTA_ESPERA_LARGA_MIN", "10")),
+                          float(os.getenv("RESPUESTA_ESPERA_LARGA_MAX", "15")))
+
+
+def _espera_antes_de_responder(texto_visible: str) -> float:
+    """Segundos extra (al azar) antes de mandar la respuesta, según su largo."""
+    rango = (RESPUESTA_ESPERA_LARGA if len(texto_visible) > RESPUESTA_CORTE_CARACTERES
+             else RESPUESTA_ESPERA_CORTA)
+    return random.uniform(*rango)
+
 # Seguimiento automático: si el cliente no responde después de este tiempo desde la última
 # respuesta del bot, se le manda UN mensaje de seguimiento con contexto (ver NOTA TÉCNICA en el
 # SYSTEM_PROMPT). La espera se elige al azar entre estos dos valores (en segundos) cada vez que
@@ -5091,6 +5109,15 @@ async def process_conversation(conversation_id: int) -> None:
             logger.info(f"Conversación {conversation_id}: agrupé {len(batch)} mensaje(s) entrante(s) "
                         f"({', '.join(kinds)}) y respondo en {len(bubbles)} burbuja(s) "
                         f"(cierra_seguimiento={close_followups}): {reply[:200]!r}")
+
+            # Espera humana antes de mandar (ver _espera_antes_de_responder). Si el cliente escribe
+            # algo nuevo durante la espera, esta tarea se cancela y se arma una respuesta nueva con
+            # todo junto -- el mismo agrupamiento de siempre.
+            texto_visible = " ".join(b for b in bubbles if "Hola Camila, quiero avanzar" not in b)
+            espera = _espera_antes_de_responder(texto_visible)
+            if espera > 0:
+                await _mostrar_escribiendo(ultimo_entrante.get("inbox_id"), ultimo_entrante.get("source_id"))
+                await asyncio.sleep(espera)
 
             for bubble in bubbles:
                 # La ficha de datos ("Hola Camila, quiero avanzar...") ya NO se le manda al cliente
