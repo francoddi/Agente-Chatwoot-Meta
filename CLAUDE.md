@@ -173,6 +173,30 @@ internamente, pero los sistemas de SMS genéricos de Meta no, y lo mandan mal si
   (WABA 4383781345169549, phone_number_id 1397482693449770); la WABA vieja 1076862111899245 quedó
   vacía. El PIN de dos pasos lo tiene Francisco (no se commitea).
 
+## Sesión del 04/10/2026 (tarde/noche) — bloqueo Bot 1, advertencia de spam Bot 2
+
+- **Bot 1 (+5492236022573) BLOQUEADO** (WABA banned, motivo "envía spam", calidad en verde hasta
+  el final). Francisco lo atribuye a un método de pago repetido; se va a reemplazar por una cuenta
+  verificada (mismo Chatwoot/bot de Easypanel, solo cambia el número).
+- **Bot 2 recibió advertencia de spam** (no bloqueo); Francisco mandó la revisión y Meta la sacó.
+- **Saludo inicial**: lista fija `_SALUDOS_INICIALES` (43 saludos simples escritos a mano: "hola,
+  soy valen", "buenas, soy valentina" + pregunta por la compañía), uno al azar; ningún par >80% de
+  parecido. Ya NO se presenta como "del equipo de Claro" (a pedido); si preguntan, dice que trabaja
+  con Celtafone, agente oficial de Claro. Medido antes: 86% de saludos casi iguales.
+- **Espera al azar antes de responder** (`_espera_antes_de_responder`): 0-5 s si la respuesta es
+  corta (≤160 caracteres), 10-15 s si es larga, además del tiempo del modelo; se re-muestra
+  "escribiendo..." durante la espera.
+- Comparación cuenta original (días buenos 08-15/09) vs Bot 1/2: la original mandaba más mensajes
+  (incluidos 47 seguimientos/día) y tenía 19% de clientes que no contestaban; Bot 1/2: 26-31%. El
+  código no hace nada indebido (no escribe primero, no fuera de 24h, no insiste).
+- **Pendientes de política de WhatsApp Business** (no hechos): ofrecer hablar con una persona
+  cuando el cliente lo pide (hoy el bot lo niega) y cargar email/web/teléfono en el perfil de
+  WhatsApp de cada número (falta que Francisco pase los datos).
+- **Prueba de anuncios desde el 05/10**: Bot 2 solo con los anuncios de siempre (sin videos no
+  validados), Bot 3 con todos; mismo presupuesto. Comparar conversión por bot y por anuncio.
+- Ventas pendientes de contacto el 05/10: Julio César Patiño e Irma Pascal (cargados a mano),
+  Ángel (Bot 3, falta foto DNI), Charo Molina (Bot 2, falta foto DNI).
+
 ## Cómo acceder a los Chatwoot desde la Mac
 
 - La red de la Mac (DNS del router) NO resuelve los dominios `*.bzovbc.easypanel.host`
