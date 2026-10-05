@@ -121,35 +121,56 @@ def build_camila_availability_note() -> str:
         f"{nota_fin_de_semana}"
     )
 
-# Saludos iniciales, para elegir uno al azar POR CÓDIGO (no dejarlo en manos del modelo) --
-# encontrado en vivo: pedirle al modelo que "varíe" el saludo no alcanza, tiende a repetir
-# siempre la misma frase (o dos) igual, y eso hizo que WhatsApp bloqueara la cuenta del negocio
-# por 30 días (detección de mensajería masiva/spam: mismo texto literal a muchos números
-# distintos en poco tiempo). Random.choice() en Python SÍ garantiza variedad real.
-#
-# IMPORTANTE: TODAS tienen que incluir "soy {bot_name}" — el negocio quiere que el bot siempre
-# se presente por nombre en el primer mensaje, sin excepción (encontrado en vivo: algunas
-# variantes viejas no lo tenían, y eso generó un saludo sin presentación real).
-#
-# IMPORTANTE (16/09/2026, a pedido explícito): el saludo tiene que ser SIEMPRE la misma idea —
-# "hola, soy {bot_name} del equipo de Claro. contame, en que compañia estas ahora?" — variando
-# solo palabras sueltas (mayúsculas/signos, "contame"/"decime", "ahora"/"hoy"/"en este momento",
-# etc.), NO la estructura ni agregando contenido nuevo (nada de "te ayudo con el cambio", "te
-# paso los precios", etc. — eso quedó afuera a propósito).
-_SALUDOS_INICIALES = [
-    "hola, soy {bot_name} del equipo de Claro. contame, en que compania estas ahora?",
-    "hola! soy {bot_name}, del equipo de Claro. contame, en que compania estas ahora?",
-    "hola, soy {bot_name} del equipo de Claro. decime, en que compania estas ahora?",
-    "hola! soy {bot_name}, del equipo de Claro. contame en que compania estas?",
-    "hola, soy {bot_name}, del equipo de Claro. contame, en que compania estas en este momento?",
-    "hola! soy {bot_name} del equipo de Claro. decime, en que compania estas hoy?",
-    "hola, soy {bot_name} del equipo de Claro. contame, en que compania estas actualmente?",
-    "hola! soy {bot_name}, del equipo de Claro. contame, en que compania estas hoy?",
+# Saludo inicial PERSONALIZADO (04/10/2026). Historia:
+# - 16/09: pedirle al modelo que "variara" no alcanzaba (repetía siempre la misma frase) y la cuenta
+#   original quedó bloqueada 30 días por spam (44% de saludos idénticos). Se pasó a 8-10 saludos
+#   fijos elegidos al azar por código, que solo cambiaban una palabra ("contame/decime",
+#   "ahora/hoy") -- a pedido explícito: "siempre la misma idea, variando solo palabras".
+# - 04/10: advertencia de Meta en el Bot 2 ("se ha detectado que Agente envía spam"). Medido: el
+#   73% de las conversaciones (91 de 125 en 48hs) recibieron un saludo casi idéntico (>80% de
+#   parecido) -- para un detector de spam es el mismo mensaje a muchos números. Nada más se
+#   repetía así (la tabla de precios, el link de Camila, etc. aparecían en menos de 10 charlas).
+# Ahora: la MISMA IDEA de siempre (Valentina, del equipo de Claro, y preguntar la compañía), pero
+# el modelo la redacta para cada cliente (su nombre si es real, lo que escribió), y el código
+# sortea apertura, orden y forma de preguntar para garantizar variedad real (no confiar solo en
+# que el modelo varíe, ver 16/09).
+_APERTURAS_SALUDO = ["hola", "hola!", "buenas", "buenas!", "qué tal", "hola, qué tal", "hola, cómo va",
+                     "SALUDO_SEGUN_HORA"]
+_ORDENES_SALUDO = [
+    "presentate primero y después preguntá la compañía",
+    "arrancá retomando en pocas palabras lo que escribió el cliente, después presentate y preguntá",
+    "decilo todo en una sola frase corta y fluida",
+    "presentate, comentá algo breve sobre lo que pidió y cerrá con la pregunta",
+]
+_PREGUNTAS_COMPANIA = [
+    "en qué compañía estás ahora", "con qué compañía tenés la línea hoy", "de qué compañía venís",
+    "qué compañía tenés", "con quién tenés el celu actualmente", "en qué empresa tenés la línea",
+    "qué compañía usás hoy", "de qué compañía es tu línea",
 ]
 
 
-def _elegir_saludo_inicial() -> str:
-    return random.choice(_SALUDOS_INICIALES).format(bot_name=BOT_NAME)
+def _nota_saludo_personalizado(nombre_perfil: str) -> str:
+    """Nota interna para el primer mensaje de una conversación nueva: el modelo escribe un saludo
+    propio para este cliente, con apertura/orden/pregunta sorteados por código."""
+    apertura = random.choice(_APERTURAS_SALUDO)
+    if apertura == "SALUDO_SEGUN_HORA":
+        hora = datetime.now(CAMILA_TIMEZONE).hour
+        apertura = "buen día" if 5 <= hora < 13 else ("buenas tardes" if hora < 20 else "buenas noches")
+    nombre = (f'El nombre de perfil de WhatsApp del cliente es "{nombre_perfil}": usá su nombre de '
+              f'pila SOLO si parece el nombre real de una persona (si es un apodo, emojis, iniciales o '
+              f'algo raro, no lo uses). ') if nombre_perfil else ""
+    return (
+        f"[Nota interna, no la muestres] Este es el PRIMER mensaje de la conversación. Escribí un "
+        f"saludo PROPIO para este cliente, no uno de plantilla: es importante que no le llegue a "
+        f"todos el mismo texto (Meta lo toma como spam). Tiene que: decir que sos {BOT_NAME}, del "
+        f"equipo de Claro; retomar con naturalidad lo que el cliente escribió (si solo saludó, no "
+        f"inventes nada); y preguntar la compañía, salvo que ya la haya dicho (en ese caso seguí "
+        f"directo con lo que corresponda, ver sección 17). {nombre}Para esta conversación: arrancá "
+        f"con \"{apertura}\", {random.choice(_ORDENES_SALUDO)}, y para la compañía preguntá algo "
+        f"como \"{random.choice(_PREGUNTAS_COMPANIA)}\" (con tus palabras). Corto, 1 o 2 frases, "
+        f"en minúscula y sin signos de apertura, como el resto de tus mensajes. No agregues precios "
+        f"ni promos en este primer mensaje si el cliente todavía no dijo la compañía."
+    )
 
 
 SYSTEM_PROMPT = f"""PROMPT MAESTRO DEFINITIVO
@@ -747,16 +768,12 @@ Respondé simple y directo: presentate (sección 1) y preguntá en qué compañ�
 
 CRÍTICO — VARIAR DE VERDAD, no solo "poder" variar: mandar el mismo saludo, palabra por palabra, a muchos números distintos en poco tiempo es exactamente el patrón que WhatsApp/Meta detecta como mensajería masiva/spam y puede terminar bloqueando la cuenta del negocio entera (ya pasó una vez). No es un detalle de estilo, es un riesgo real para el negocio.
 
-Elegí una de estas variantes (o inventá una nueva con la misma idea) CADA VEZ, no uses siempre la misma:
-
-"hola, soy {BOT_NAME} del equipo de Claro. contame, en que compañia estas ahora?"
-"hola! soy {BOT_NAME}, del equipo de Claro. en que compañia estas ahora?"
-"hola, te ayudo con el cambio a Claro. decime en que compañia estas para ver la promo que te corresponde"
-"hola! contame, de que compañia venis? asi te paso la promo correcta"
-"hola, soy {BOT_NAME}. para arrancar, decime en que compañia estas ahora"
-"hola! en que compañia estas actualmente? te cuento la promo para pasarte a Claro"
-
-No repitas la misma variante que usaste en los últimos mensajes de otras conversaciones si te acordás cuál usaste — priorizá que cada saludo suene distinto al anterior.
+Por eso el saludo NO sale de una plantilla: en el primer mensaje de cada conversación te llega
+una nota interna con indicaciones para armarlo para ESE cliente (su nombre si es real, lo que
+escribió, y una apertura y forma de preguntar distintas cada vez). Seguila. La idea es siempre
+la misma — decir que sos {BOT_NAME}, del equipo de Claro, y preguntar en qué compañía está —
+pero redactada distinta para cada persona (04/10/2026: Meta advirtió por spam con el 73% de los
+saludos casi idénticos).
 
 SI NO CONTESTA esa primera pregunta y tenés que volver a preguntar (ya sea en la misma charla o en un seguimiento automático), NO repitas la pregunta tal cual por segunda vez. Ahí sí cambiá de táctica: bajale la fricción mostrándole un ejemplo de precio directamente, así:
 
@@ -4996,18 +5013,11 @@ async def process_conversation(conversation_id: int) -> None:
                     ),
                 })
             if not history_raw:
-                # Primer intercambio real de la conversación -> se sugiere un saludo elegido al azar
-                # por código (ver _SALUDOS_INICIALES), no queda en manos del modelo variar solo.
-                saludo = _elegir_saludo_inicial()
-                notas_sistema.append({
-                    "role": "system",
-                    "content": (
-                        f"[Nota interna, no la muestres tal cual] Para el saludo de este primer mensaje, "
-                        f"usá esta variante (podés ajustarla livianamente al contexto, pero no la "
-                        f"cambies por otra completamente distinta — es importante que no siempre sea la "
-                        f"misma frase, ver sección 17): \"{saludo}\""
-                    ),
-                })
+                # Primer intercambio real de la conversación -> saludo personalizado para este
+                # cliente, con variedad sorteada por código (ver _nota_saludo_personalizado).
+                nombre_perfil = ((batch[0].get("sender") or {}).get("name") or "").strip()
+                notas_sistema.append({"role": "system",
+                                      "content": _nota_saludo_personalizado(nombre_perfil)})
 
             messages = (
                 [{"role": "system", "content": SYSTEM_PROMPT}]
