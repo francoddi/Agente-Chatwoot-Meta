@@ -121,55 +121,143 @@ def build_camila_availability_note() -> str:
         f"{nota_fin_de_semana}"
     )
 
-# Saludo inicial PERSONALIZADO (04/10/2026). Historia:
-# - 16/09: pedirle al modelo que "variara" no alcanzaba (repetía siempre la misma frase) y la cuenta
-#   original quedó bloqueada 30 días por spam (44% de saludos idénticos). Se pasó a 8-10 saludos
-#   fijos elegidos al azar por código, que solo cambiaban una palabra ("contame/decime",
-#   "ahora/hoy") -- a pedido explícito: "siempre la misma idea, variando solo palabras".
-# - 04/10: advertencia de Meta en el Bot 2 ("se ha detectado que Agente envía spam"). Medido: el
-#   73% de las conversaciones (91 de 125 en 48hs) recibieron un saludo casi idéntico (>80% de
-#   parecido) -- para un detector de spam es el mismo mensaje a muchos números. Nada más se
-#   repetía así (la tabla de precios, el link de Camila, etc. aparecían en menos de 10 charlas).
-# Ahora: la MISMA IDEA de siempre (Valentina, del equipo de Claro, y preguntar la compañía), pero
-# el modelo la redacta para cada cliente (su nombre si es real, lo que escribió), y el código
-# sortea apertura, orden y forma de preguntar para garantizar variedad real (no confiar solo en
-# que el modelo varíe, ver 16/09).
-_APERTURAS_SALUDO = ["hola", "hola!", "buenas", "buenas!", "qué tal", "hola, qué tal", "hola, cómo va",
-                     "SALUDO_SEGUN_HORA"]
-_ORDENES_SALUDO = [
-    "presentate primero y después preguntá la compañía",
-    "arrancá retomando en pocas palabras lo que escribió el cliente, después presentate y preguntá",
-    "decilo todo en una sola frase corta y fluida",
-    "presentate, comentá algo breve sobre lo que pidió y cerrá con la pregunta",
-]
-_PREGUNTAS_COMPANIA = [
-    "en qué compañía estás ahora", "con qué compañía tenés la línea hoy", "de qué compañía venís",
-    "qué compañía tenés", "con quién tenés el celu actualmente", "en qué empresa tenés la línea",
-    "qué compañía usás hoy", "de qué compañía es tu línea",
+# Saludo inicial: 100 saludos distintos, uno al azar por código (04/10/2026). Historia:
+# - 16/09: pedirle al modelo que "variara" no alcanzaba y la cuenta original quedó bloqueada 30
+#   días por spam (45% de saludos idénticos letra por letra). Se pasó a 8 saludos fijos al azar,
+#   que solo cambiaban una palabra ("contame/decime", "ahora/hoy").
+# - 04/10: advertencia de spam de Meta en el Bot 2. Medido: el 86% de los saludos eran casi
+#   idénticos (>80% de parecido) -- para un detector, el mismo mensaje a muchos números.
+# Ahora: 100 saludos distintos entre sí (ningún par con más de ~73% de parecido, promedio ~46%,
+# generados y filtrados por similitud, revisados a mano). A pedido explícito, se presentan solo
+# como Valentina, SIN "del equipo de Claro" ni "agente oficial" (Meta también puede leer eso como
+# hacerse pasar por la marca). Los que mencionan "buen día / buenas tardes / buenas noches" solo
+# se eligen en ese horario.
+_SALUDOS_INICIALES = [
+    "qué tal? soy valentina 👋. para chequear los beneficios del cambio, qué compañía de celular usás?",
+    "qué tal? soy valentina. por tu consulta del anuncio, me dirías en qué compañía de celu estás?",
+    "hola, te agradezco que nos contactes. soy valentina. para ayudarte, me dirías de qué compañía sos?",
+    "hola, gracias por la confianza. mi nombre es valentina. para poder asesorarte bien, me contás en qué compañía estás?",
+    "qué tal? te escribe valentina. me llegó tu consulta. para arrancar, decime cuál es tu empresa de telefonía actual?",
+    "hola, buenas noches. soy valentina. me dirías de qué compañía sos cliente actualmente?",
+    "hola, buen día. hablás con valentina. me dirías por favor en qué empresa estás ahora?",
+    "hola, cómo estás? soy valentina. vi tu mensaje. para poder pasarte una buena propuesta, en qué compañía estás?",
+    "buenas, soy valentina. espectacular que te interese. para ver qué podemos hacer, en qué compañía estás?",
+    "hola, muchas gracias por el mensaje. mi nombre es valentina. si me decís tu compañía actual te asesoro?",
+    "soy valentina, cómo va? para empezar, de qué empresa sos?",
+    "hola, soy valentina. te escribo por tu interés en la portabilidad. me contás en qué empresa estás?",
+    "hola, soy valentina. para asesorarte, en qué compañía estás?",
+    "buen día, cómo andás? mi nombre es valentina. contame, cuál es tu empresa de celular hoy?",
+    "gracias por comunicarte. soy valentina, para ver qué podemos ofrecerte, me decís en qué compañía estás?",
+    "qué hacés? soy valentina. para saber por dónde empezar, me decís qué compañía tenés ahora?",
+    "recibimos tu mensaje, gracias! soy valentina. para saber cómo seguir, me dirías cuál es tu compañía actual? 👍",
+    "hola, soy valentina. vi que nos escribiste por el anuncio, me contás en qué compañía de celular estás ahora?",
+    "hola! te escribe valentina. vi tu consulta por el anuncio. para poder ayudarte, en qué compañía estás actualmente?",
+    "qué tal? soy valentina. de qué compañía querés irte?",
+    "qué tal, te habla valentina. te escribo por tu consulta sobre portabilidad. me dirías cuál es tu compañía de celular actual?",
+    "cómo va? soy valentina. decime, cuál es la empresa que tenés ahora de celular?",
+    "arranquemos por lo básico: qué compañía tenés? mi nombre es valentina",
+    "hola, te escribe valentina. vi que querés cambiar tu línea. para darte la info, me decís tu compañía actual?",
+    "hola, soy valentina. para chequear la promo, me contás de qué compañía venís?",
+    "qué tal, buenas tardes, soy valentina. me contás por favor en qué compañía tenés tu línea?",
+    "hola, todo bien? soy valentina. decime, en qué empresa de celulares tenés servicio?",
+    "hola, soy valentina. te escribo por el anuncio. para poder cotizar, qué compañía tenés?",
+    "hola, te atiende valentina. qué compañía de celu tenés?",
+    "hola, soy valentina, gracias por escribir. para ver qué plan recomendarte, qué compañía tenés?",
+    "de qué compañía te estás queriendo cambiar? soy valentina",
+    "gracias por ponerte en contacto. mi nombre es valentina. para darte la mejor info, me contás desde qué empresa te querés cambiar?",
+    "hola, qué tal? te habla valentina. así chequeo los beneficios para vos, en qué empresa estás?",
+    "buen día, te escribe valentina. vi que consultaste por el cambio. qué compañía tenés ahora?",
+    "hola, soy valentina. vi tu interés en cambiar de línea. me decís por favor en qué compañía estás ahora?",
+    "qué tal? valentina de este lado. para chequear qué promo te va, me decís tu compañía?",
+    "buen día, mi nombre es valentina. recibí tu consulta. para ayudarte, me decís de qué empresa te querés pasar?",
+    "hola, te escribo por el anuncio, soy valentina. así te guío con las opciones, en qué empresa de celu estás?",
+    "te agradezco por escribir, soy valentina. para poder guiarte, me comentás cuál es tu empresa de celular?",
+    "qué bueno que te comunicaste, soy valentina. contame, de qué empresa te querés pasar?",
+    "hola, soy valentina. recibí tu consulta. actualmente, con qué empresa tenés servicio?",
+    "buen día, soy valentina. vi que te interesa cambiarte. para empezar, me decís tu compañía de celular?",
+    "hola, recibí tu mensaje, muchas gracias. soy valentina. me podrías decir cuál es tu empresa de telefonía actual?",
+    "hola, cómo estás? soy valentina. por el anuncio para cambiarte, me contás qué compañía usás?",
+    "buenas, soy valentina. para empezar, cuál es tu compañía?",
+    "qué tal, mi nombre es valentina. vi tu mensaje. para poder ver las promos, me decís tu compañía actual?",
+    "para empezar con la portabilidad, de qué empresa venís? soy valentina",
+    "buenas, te escribe valentina. me llegó tu consulta para cambiarte. me dirías de qué compañía venís?",
+    "buen día, soy valentina. gracias por escribirnos. para ver qué beneficios tenés, me decís tu compañía actual?",
+    "hola, buen día. soy valentina. para saber qué promo te toca, cuál es tu empresa de celu?",
+    "buenas, te habla valentina. contame, de qué empresa venís?",
+    "soy valentina, gracias por escribir. en qué empresa estás?",
+    "vi que querés cambiarte, de qué compañía? soy valentina",
+    "para darte una mano, decime de qué empresa sos? soy valentina",
+    "buenas, soy valentina. para arrancar, me contás cuál es tu compañía de telefonía móvil actual?",
+    "hola, cómo te va? soy valentina. para tener el panorama completo, de qué empresa sos ahora?",
+    "hola, soy valentina, cómo andás? vi que preguntaste por la portabilidad. decime, en qué compañía tenés línea?",
+    "qué tal? soy valentina. para darte los detalles precisos, contame en qué empresa estás ahora?",
+    "hola, soy valentina. vi que consultaste para cambiar de compañía. para empezar, contame en qué empresa estás ahora?",
+    "qué tal? acá valentina. para orientarte mejor, contame de qué empresa sos actualmente?",
+    "hola, gracias por la consulta. te saluda valentina. me dirías por favor en qué compañía de celular estás?",
+    "che, y tu número de qué compañía es? soy valentina",
+    "me dirías cuál es tu empresa de celular? te habla valentina",
+    "hola, soy valentina. vi tu mensaje por el cambio. para seguir, decime, qué compañía usás?",
+    "hola, todo bien? acá valentina. te escribo por el anuncio. me dirías cuál es tu compañía de celular en este momento?",
+    "hola, cómo va? valentina por acá. para confirmar las promos para tu línea, cuál es tu compañía?",
+    "hola, cómo estás? soy valentina. qué bueno. te ayudo a hacer el cambio. me decís tu empresa de telefonía?",
+    "hola, soy valentina. re bien que nos contactaste. para darte una mano, me decís en qué compañía estás?",
+    "hola, agradezco que nos hayas escrito. mi nombre es valentina. para asesorarte, me decís de qué empresa venís?",
+    "qué tal? mi nombre es valentina. vi que estás averiguando para cambiarte. me decís cuál es tu compañía?",
+    "hola! soy valentina. para pasarte la info justa, decime cuál es tu compañía de celular?",
+    "actualmente, a qué empresa le pagás el celu? soy valentina",
+    "así te cuento las opciones, en qué compañía estás? soy valentina",
+    "buenas tardes, acá valentina. vi tu mensaje para cambiar de empresa. me decís en qué compañía estás actualmente?",
+    "cómo andás? te escribe valentina. decime, en qué compañía tenés tu número hoy?",
+    "hola, cómo va? te habla valentina. vi que nos consultaste. para empezar, cuál es tu compañía de teléfono?",
+    "gracias por tu tiempo y por escribir. soy valentina. para empezar, me contás desde qué empresa venís? 👋",
+    "hola, qué tal? te habla valentina. vi que preguntaste por el cambio de empresa. contame, de qué línea sos cliente?",
+    "qué tal? soy valentina. recibí tu mensaje. para ver qué plan te sirve, en qué empresa estás?",
+    "buenas tardes, te escribe valentina. me dirías en qué empresa tenés tu línea en este momento?",
+    "hola, soy valentina. para darte la mejor info para el cambio, me decís de qué empresa venís?",
+    "gracias por considerarnos, te habla valentina. para darte una mano, me contás en qué empresa tenés tu número?",
+    "hola, cómo estás? soy valentina. cuál es tu compañía hoy?",
+    "qué bueno que te interesó la propuesta, gracias. te habla valentina. decime, cuál es tu empresa de telefonía actual?",
+    "hola, valentina de este lado. vi que querés pasarte de compañía, en cuál estás actualmente?",
+    "hola, cómo estás? acá valentina. qué bueno que escribiste. me dirías cuál es tu empresa de celular hoy?",
+    "hola, valentina por acá. recibí tu mensaje. de qué compañía te querés pasar?",
+    "hola, mi nombre es valentina. te contacto por tu consulta. para darte una mano, cuál es tu compañía de celu?",
+    "así vemos qué plan te sirve, de qué compañía sos? soy valentina",
+    "soy valentina, un gusto. contame, con qué empresa estás?",
+    "buenas tardes, cómo va? soy valentina. te pregunto, qué empresa de celular tenés?",
+    "hola, qué tal? soy valentina. bárbaro que te quieras sumar. contame, de qué empresa venís?",
+    "hola, soy valentina. gracias por tu mensaje. me decís en qué compañía estás para poder asesorarte?",
+    "hola, cómo va? soy valentina. para ayudarte a pasarte, me decís en qué empresa tenés línea ahora?",
+    "hola, cómo andás? soy valentina. para empezar, contame de qué compañía sos cliente?",
+    "buenas, soy valentina. con qué empresa tenés servicio ahora?",
+    "buenas, cómo estás? soy valentina. para ver las opciones para vos, en qué compañía estás?",
+    "qué tal? soy valentina. para asesorarte como corresponde, me decís tu compañía actual?",
+    "qué tal? te habla valentina. vi que querés cambiarte. para asesorarte, en qué compañía estás?",
+    "hola, te habla valentina. vi que te interesa la portabilidad. para seguir, me contás cuál es tu compañía actual?",
 ]
 
+_FRANJAS_SALUDO = {"buen día": range(5, 12), "buenas tardes": range(12, 20),
+                   "buenas noches": list(range(20, 24)) + list(range(0, 5))}
 
-def _nota_saludo_personalizado(nombre_perfil: str) -> str:
-    """Nota interna para el primer mensaje de una conversación nueva: el modelo escribe un saludo
-    propio para este cliente, con apertura/orden/pregunta sorteados por código."""
-    apertura = random.choice(_APERTURAS_SALUDO)
-    if apertura == "SALUDO_SEGUN_HORA":
-        hora = datetime.now(CAMILA_TIMEZONE).hour
-        apertura = "buen día" if 5 <= hora < 13 else ("buenas tardes" if hora < 20 else "buenas noches")
-    nombre = (f'El nombre de perfil de WhatsApp del cliente es "{nombre_perfil}": usá su nombre de '
-              f'pila SOLO si parece el nombre real de una persona (si es un apodo, emojis, iniciales o '
-              f'algo raro, no lo uses). ') if nombre_perfil else ""
+
+def _elegir_saludo_inicial() -> str:
+    hora = datetime.now(CAMILA_TIMEZONE).hour
+    posibles = [s for s in _SALUDOS_INICIALES
+                if all(hora in horas for frase, horas in _FRANJAS_SALUDO.items() if frase in s)]
+    return random.choice(posibles or _SALUDOS_INICIALES)
+
+
+def _nota_saludo_inicial(nombre_perfil: str) -> str:
+    saludo = _elegir_saludo_inicial()
+    nombre = (f' Si el nombre de perfil de WhatsApp del cliente ("{nombre_perfil}") es claramente el '
+              f'nombre real de una persona, podés agregar su nombre de pila después del saludo; si es '
+              f'un apodo, emojis o algo raro, no.') if nombre_perfil else ""
     return (
-        f"[Nota interna, no la muestres] Este es el PRIMER mensaje de la conversación. Escribí un "
-        f"saludo PROPIO para este cliente, no uno de plantilla: es importante que no le llegue a "
-        f"todos el mismo texto (Meta lo toma como spam). Tiene que: decir que sos {BOT_NAME}, del "
-        f"equipo de Claro; retomar con naturalidad lo que el cliente escribió (si solo saludó, no "
-        f"inventes nada); y preguntar la compañía, salvo que ya la haya dicho (en ese caso seguí "
-        f"directo con lo que corresponda, ver sección 17). {nombre}Para esta conversación: arrancá "
-        f"con \"{apertura}\", {random.choice(_ORDENES_SALUDO)}, y para la compañía preguntá algo "
-        f"como \"{random.choice(_PREGUNTAS_COMPANIA)}\" (con tus palabras). Corto, 1 o 2 frases, "
-        f"en minúscula y sin signos de apertura, como el resto de tus mensajes. No agregues precios "
-        f"ni promos en este primer mensaje si el cliente todavía no dijo la compañía."
+        f"[Nota interna, no la muestres] Este es el PRIMER mensaje de la conversación. Usá como "
+        f"saludo EXACTAMENTE este texto: \"{saludo}\" — no lo cambies por otro ni le agregues "
+        f"\"del equipo de Claro\" ni nada parecido (es importante que no le llegue a todos el mismo "
+        f"texto: Meta lo toma como spam).{nombre} Si el cliente ya dijo en qué compañía está, no se "
+        f"la vuelvas a preguntar: quedate solo con la presentación y seguí con lo que corresponda "
+        f"(sección 17)."
     )
 
 
@@ -238,11 +326,11 @@ Tu función es:
 
 Camila realiza el ALTA / TRASPASO / PROCESAMIENTO FINAL.
 
-Presentate con tu nombre en el PRIMER mensaje de cada conversación nueva — decile quién sos y que sos del equipo de Claro, así el cliente sabe con quién está hablando desde el arranque. No hace falta que sea un mensaje aparte, se puede meter en la misma primera respuesta, junto con la primera pregunta (ver sección 17).
+Presentate con tu nombre en el PRIMER mensaje de cada conversación nueva — decile que sos {BOT_NAME}, así el cliente sabe con quién está hablando desde el arranque. NO te presentes como "del equipo de Claro", "agente oficial de Claro" ni "asesora de Claro" (a pedido explícito, 04/10/2026). Si el cliente te pregunta de qué empresa sos o con quién trabajás, respondé con la verdad: que trabajás con Celtafone, agente oficial de Claro. No hace falta que sea un mensaje aparte, se puede meter en la misma primera respuesta, junto con la primera pregunta (ver sección 17).
 
 Ejemplo:
 
-"hola, soy {BOT_NAME} del equipo de Claro. contame, en que compañia estas ahora?"
+"hola, soy {BOT_NAME}. contame, en que compañia estas ahora?"
 
 No repetir tu nombre en cada mensaje — solo al arrancar la conversación.
 
@@ -704,11 +792,11 @@ Si el cliente solamente escribe:
 
 podés contestar:
 
-"hola, soy {BOT_NAME} del equipo de Claro. contame, en que compañia estas ahora?"
+"hola, soy {BOT_NAME}. contame, en que compañia estas ahora?"
 
 o:
 
-"buenas, soy {BOT_NAME} del equipo de Claro. querias consultar por el cambio?"
+"buenas, soy {BOT_NAME}. querias consultar por el cambio?"
 
 No responder únicamente:
 
@@ -768,12 +856,11 @@ Respondé simple y directo: presentate (sección 1) y preguntá en qué compañ�
 
 CRÍTICO — VARIAR DE VERDAD, no solo "poder" variar: mandar el mismo saludo, palabra por palabra, a muchos números distintos en poco tiempo es exactamente el patrón que WhatsApp/Meta detecta como mensajería masiva/spam y puede terminar bloqueando la cuenta del negocio entera (ya pasó una vez). No es un detalle de estilo, es un riesgo real para el negocio.
 
-Por eso el saludo NO sale de una plantilla: en el primer mensaje de cada conversación te llega
-una nota interna con indicaciones para armarlo para ESE cliente (su nombre si es real, lo que
-escribió, y una apertura y forma de preguntar distintas cada vez). Seguila. La idea es siempre
-la misma — decir que sos {BOT_NAME}, del equipo de Claro, y preguntar en qué compañía está —
-pero redactada distinta para cada persona (04/10/2026: Meta advirtió por spam con el 73% de los
-saludos casi idénticos).
+Por eso, en el primer mensaje de cada conversación te llega una nota interna con el saludo exacto
+a usar, elegido al azar entre 100 distintos. Usalo tal cual (podés sumarle el nombre del cliente
+si es un nombre real). La idea es siempre la misma — decir que sos {BOT_NAME} y preguntar en qué
+compañía está — pero con un texto distinto para cada persona (04/10/2026: Meta advirtió por spam
+con el 86% de los saludos casi idénticos).
 
 SI NO CONTESTA esa primera pregunta y tenés que volver a preguntar (ya sea en la misma charla o en un seguimiento automático), NO repitas la pregunta tal cual por segunda vez. Ahí sí cambiá de táctica: bajale la fricción mostrándole un ejemplo de precio directamente, así:
 
@@ -799,7 +886,7 @@ CLIENTE:
 "Quiero pasarme a Claro 😊"
 
 ASESORA:
-"hola, soy {BOT_NAME} del equipo de Claro. contame, en que compañia estas ahora?"
+"hola, soy {BOT_NAME}. contame, en que compañia estas ahora?"
 
 CLIENTE:
 "Movistar"
@@ -5014,10 +5101,10 @@ async def process_conversation(conversation_id: int) -> None:
                 })
             if not history_raw:
                 # Primer intercambio real de la conversación -> saludo personalizado para este
-                # cliente, con variedad sorteada por código (ver _nota_saludo_personalizado).
+                # cliente, elegido al azar entre 100 (ver _nota_saludo_inicial).
                 nombre_perfil = ((batch[0].get("sender") or {}).get("name") or "").strip()
                 notas_sistema.append({"role": "system",
-                                      "content": _nota_saludo_personalizado(nombre_perfil)})
+                                      "content": _nota_saludo_inicial(nombre_perfil)})
 
             messages = (
                 [{"role": "system", "content": SYSTEM_PROMPT}]
