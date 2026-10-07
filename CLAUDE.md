@@ -125,9 +125,9 @@ internamente, pero los sistemas de SMS genéricos de Meta no, y lo mandan mal si
 
 ## Sesión del 03/10/2026 (desde la Mac) — qué cambió
 
-- **Precios**: Movistar/Tuenti y Personal Consumidor Final (DNI) pasaron de 70% a **65% off**
-  (misma tabla: 4GB $20.997, 7GB $23.870, 10GB $30.345, 30GB $40.460, 50GB $46.529, sin 2GB, +10GB
-  de regalo x 6 meses). Empresa y Línea nueva sin cambios. Desplegado y verificado en Bot 1 y 2.
+- **Precios**: Movistar/Tuenti y Personal Consumidor Final (DNI) usan **70% off**
+  (tabla: 4GB $17.997, 7GB $20.460, 10GB $26.010, 30GB $34.680, 50GB $39.882, sin 2GB, +10GB
+  de regalo x 6 meses). Empresa y Línea nueva sin cambios. Actualizado el 07/10/2026 para Bot 3.
 - **Cliente que ya es de Claro (prepago o abono)**: NO se le vende nada con esa línea (el equipo
   lo rechaza: "YA ES CLIENTE CLARO"). Antes el bot lo trataba como "línea nueva" (caso Hugo
   Orlando Romero). Regla agregada en la sección 0 y 33.3 del prompt + red de seguridad en
