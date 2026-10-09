@@ -128,6 +128,12 @@ class ReglasDeNegocioTest(unittest.TestCase):
         self.assertTrue(main._tiene_razonamiento_filtrado(
             "**Validating Current Status**\nThe user has supplied the information."
         ))
+        self.assertTrue(main._tiene_razonamiento_filtrado(
+            "**Análisis de la conversación**\nEl cliente ya pasó todos los datos."
+        ))
+        self.assertTrue(main._tiene_razonamiento_filtrado(
+            "<analysis>Debo decidir qué contestar</analysis> hola"
+        ))
         self.assertFalse(main._tiene_razonamiento_filtrado(
             "perfecto, me falta solamente la foto del dorso"
         ))
@@ -157,8 +163,90 @@ class ReglasDeNegocioTest(unittest.TestCase):
             with self.subTest(texto=texto):
                 self.assertFalse(main._tiene_razonamiento_filtrado(texto))
 
+    def test_bloquea_repreguntar_compania_ya_informada(self):
+        historial = [
+            _mensaje(1, 0, "Hola, quiero pasarme a Claro"),
+            _mensaje(2, 1, "de qué compañía sos?"),
+            _mensaje(3, 0, "Movistar"),
+            _mensaje(4, 1, "te paso los planes"),
+            _mensaje(5, 0, "Hola, quiero pasarme a Claro"),
+        ]
+        motivo = main._motivo_respuesta_incoherente(
+            "hola, soy Valentina. en qué compañía estás ahora?", historial
+        )
+        self.assertIn("volvió a preguntar", motivo)
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "hola de nuevo, te habían interesado estos planes?", historial
+        ))
+
+    def test_bloquea_precio_empresa_sin_compania(self):
+        historial = [_mensaje(1, 0, "la línea es de una empresa, con CUIT")]
+        self.assertIn(
+            "precio de Empresa",
+            main._motivo_respuesta_incoherente(
+                "por ejemplo el de 30gb te queda en $27.735", historial
+            ),
+        )
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "decime primero en qué compañía está la línea", historial
+        ))
+
+    def test_bloquea_afirmaciones_comerciales_no_verificadas(self):
+        historial = [_mensaje(1, 0, "tengo una duda")]
+        casos = [
+            "los aumentos los va regulando el gobierno",
+            "podés pedir que te cambien la fecha de vencimiento",
+            "quedate tranquila, no es una estafa",
+            "es 100% seguro",
+            "es el procedimiento oficial",
+        ]
+        for texto in casos:
+            with self.subTest(texto=texto):
+                self.assertIsNotNone(main._motivo_respuesta_incoherente(texto, historial))
+
+    def test_normaliza_o_descarta_emails_antes_de_sheets(self):
+        self.assertEqual(main._normalizar_email_ficha("juan@gmail.con"), "juan@gmail.com")
+        self.assertEqual(main._normalizar_email_ficha("ventas@empresa.com.ar"), "ventas@empresa.com.ar")
+        self.assertEqual(main._normalizar_email_ficha("arevalodavid@120.con"), "")
+        campos = main._parse_ficha_fields("Nombre: Juan\nEmail: arevalodavid@120.con")
+        self.assertNotIn("Email", campos)
+
 
 class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
+    async def test_openrouter_reintenta_si_devuelve_solo_espacios(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.side_effect = [
+            {"choices": [{"message": {"content": "  \n  "}, "finish_reason": "stop"}]},
+            {"choices": [{"message": {"content": "respuesta válida"}, "finish_reason": "stop"}]},
+        ]
+        client = AsyncMock()
+        client.post.return_value = response
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        with patch.object(main.httpx, "AsyncClient", return_value=context):
+            respuesta = await main.call_openrouter(
+                [{"role": "user", "content": "hola"}], intentos=2
+            )
+        self.assertEqual(respuesta, "respuesta válida")
+        self.assertEqual(client.post.await_count, 2)
+
+    async def test_regenera_una_respuesta_comercial_incoherente(self):
+        historial = [_mensaje(1, 0, "soy de Movistar")]
+        with patch.object(
+            main,
+            "call_openrouter",
+            AsyncMock(side_effect=[
+                "hola, en qué compañía estás?",
+                "seguimos con Movistar, cuál plan te interesa?",
+            ]),
+        ) as openrouter:
+            respuesta = await main._call_openrouter_respuesta_cliente(
+                [{"role": "system", "content": "prueba"}], historial
+            )
+        self.assertEqual(respuesta, "seguimos con Movistar, cuál plan te interesa?")
+        self.assertEqual(openrouter.await_count, 2)
+
     async def test_mensaje_normal_del_bot_lleva_marca_interna(self):
         client = AsyncMock()
         response = MagicMock()

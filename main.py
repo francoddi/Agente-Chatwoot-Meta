@@ -799,6 +799,11 @@ Interpretar TODO lo que diga.
 
 Nunca preguntar nuevamente algo que ya fue informado.
 
+Una conversación NO vuelve a empezar porque el cliente toque otra vez el anuncio y llegue de
+nuevo el texto genérico "Hola, quiero pasarme a Claro". Antes de saludar o preguntar la
+compañía, releé el historial completo: si ya sabés su compañía, plan o algún dato, retomá desde
+el punto pendiente y no reinicies el embudo.
+
 EL MENSAJE MÁS COMÚN es un genérico armado por el anuncio, tipo "Quiero pasarme a Claro 😊", sin ningún dato todavía.
 
 Respondé simple y directo: presentate (sección 1) y preguntá en qué compañía está ahora, sin vueltas.
@@ -1769,9 +1774,10 @@ directamente la versión corregida en la ficha, como si el cliente la hubiera es
 
 LÍMITE IMPORTANTE: esto es solo para errores de tipeo OBVIOS sobre un dominio conocido. Si el
 dominio es algo distinto de verdad (una empresa, un dominio raro, algo que no reconocés como
-una variante típica de un proveedor conocido), NO inventes ni corrijas — ahí sí preguntá o
-usalo tal cual te lo pasó. Ante la duda de si es un typo o un dominio real distinto, no
-adivines: confirmá.
+una variante típica de un proveedor conocido), NO inventes ni corrijas. Si además tiene aspecto
+inválido (por ejemplo "@120.con"), NO digas "lo anoto" ni lo confirmes como correcto: pedile
+UNA vez que lo revise. Si no puede confirmarlo, seguí sin email porque no es obligatorio
+(sección 43.3). Ante la duda de si es un typo o un dominio real distinto, no adivines: confirmá.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 43.3 EL EMAIL SE PIDE, PERO NO ES OBLIGATORIO
@@ -2536,6 +2542,10 @@ Límites:
 - No inventes fechas exactas de vencimiento ni montos distintos a la tabla: el precio es el de la
   tabla y se paga por mes. Solo decí lo que es cierto (hoy no paga nada, la primera factura llega
   un mes después de recibir el chip).
+- No afirmes que el cliente puede elegir o cambiar la fecha de vencimiento: no tenemos ese dato.
+- Si pregunta cada cuánto aumenta, decí únicamente que no hay una fecha ni un importe que puedas
+  confirmar de antemano y que cualquier actualización la define la compañía. NUNCA digas que los
+  aumentos "los regula el gobierno" ni inventes una frecuencia.
 - Si la objeción es que el plan le parece CARO (no un tema de cuándo cobra), eso es otra cosa:
   manejalo como objeción de precio (sección 56).
 - Si después de explicarle igual dice clarito que no quiere avanzar, aceptalo sin insistir más.
@@ -2545,6 +2555,15 @@ Límites:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 NO INVENTAR.
+
+Tampoco garantices cosas que no podés verificar. Si alguien teme una estafa o desconfía de mandar
+el DNI, explicá para qué se solicita y cómo continúa el trámite, pero NUNCA respondas "no es una
+estafa", "es 100% seguro", "es el procedimiento oficial" ni otra garantía absoluta. Podés
+ofrecerle que verifique la identidad/canal por los medios oficiales de Claro antes de seguir.
+
+Si el cliente dijo que es EMPRESA/CUIT pero todavía no informó si viene de Movistar, Tuenti o
+Personal, no des ningún precio de ejemplo: las tablas de empresa son distintas. Primero confirmá
+la compañía y recién ahí mostrale el precio exacto.
 
 Podés decir:
 
@@ -3708,6 +3727,40 @@ async def _avisar_fallo_respuesta(conversation_id, detalle: str) -> None:
         logger.error(f"No se pudo avisar del fallo de respuesta: {e}")
 
 
+_DOMINIOS_EMAIL_TYPO = {
+    "gmali.com": "gmail.com",
+    "gmaiñl.co": "gmail.com",
+    "gmail.con": "gmail.com",
+    "hotmial.com": "hotmail.com",
+    "hotmail.con": "hotmail.com",
+    "outlok.com": "outlook.com",
+    "outlook.con": "outlook.com",
+    "yahoo.con": "yahoo.com",
+}
+
+
+def _normalizar_email_ficha(email: str) -> str:
+    """Corrige typos obvios y descarta emails inequívocamente inválidos.
+
+    El email no es obligatorio. Guardar uno inventado o roto en Sheets es peor que dejar la
+    celda vacía; los dominios corporativos válidos siguen permitidos mientras tengan una forma
+    razonable.
+    """
+    valor = (email or "").strip().strip(".,;:<>[]()")
+    if valor.count("@") != 1 or any(c.isspace() for c in valor):
+        return ""
+    local, dominio = valor.rsplit("@", 1)
+    dominio = _DOMINIOS_EMAIL_TYPO.get(dominio.lower(), dominio.lower())
+    if not local or not re.fullmatch(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+", local, re.IGNORECASE):
+        return ""
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,24}", dominio, re.IGNORECASE):
+        return ""
+    host, _, tld = dominio.rpartition(".")
+    if not host or host.isdigit() or tld == "con" or ".." in dominio:
+        return ""
+    return f"{local}@{dominio}"
+
+
 def _parse_ficha_fields(ficha: str) -> dict:
     """Convierte la ficha ("Campo: Valor" línea por línea) en un diccionario.
 
@@ -3731,6 +3784,14 @@ def _parse_ficha_fields(ficha: str) -> dict:
             if variante in campos:
                 campos["Número a portar"] = campos[variante]
                 break
+
+    if "Email" in campos:
+        email_normalizado = _normalizar_email_ficha(campos["Email"])
+        if email_normalizado:
+            campos["Email"] = email_normalizado
+        else:
+            logger.warning("La ficha contenía un email inválido; se omite porque no es obligatorio.")
+            campos.pop("Email", None)
 
     return campos
 
@@ -4334,6 +4395,14 @@ _PATRONES_META_SIN_RESPUESTA = (
     "no se necesita responder", "sin enviar respuesta",
 )
 
+_INICIOS_RAZONAMIENTO_INTERNO_ES = (
+    "analizando la conversacion", "analisis de la conversacion",
+    "analisis del mensaje", "evaluando el estado actual", "evaluando la situacion",
+    "razonamiento", "plan de respuesta", "debo responder", "necesito responder",
+    "el usuario dijo", "el usuario ha ", "el cliente dijo", "el cliente ha ",
+    "identificar el problema", "identificar la intencion", "primero debo ",
+)
+
 # Palabras funcionales y vocabulario inequívocamente inglés que aparecen en respuestas o
 # razonamientos completos. Se excluyen deliberadamente préstamos habituales en castellano
 # (internet, email, link, WhatsApp, plan, app, GB) para no bloquear respuestas comerciales sanas.
@@ -4408,6 +4477,11 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     # Los encabezados/muletillas siguientes son propios del razonamiento, no una respuesta
     # comercial en español para el cliente.
     inicio_sin_markdown = t.lstrip("*_#` >\n\t")
+    inicio_sin_tildes = _texto_sin_tildes(inicio_sin_markdown)
+    if any(marca in t for marca in ("<analysis", "</analysis>", "<thinking", "</thinking>")):
+        return True
+    if inicio_sin_tildes.startswith(_INICIOS_RAZONAMIENTO_INTERNO_ES):
+        return True
     if inicio_sin_markdown.startswith((
         "validating current status", "analyzing", "analysis", "reasoning",
         "thinking through", "reviewing the conversation", "assessing the situation",
@@ -4418,6 +4492,65 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     if _parece_texto_en_ingles(texto):
         return True
     return any(p in t for p in _PATRONES_META_SIN_RESPUESTA)
+
+
+def _texto_sin_tildes(texto: str) -> str:
+    return unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().lower()
+
+
+def _companias_informadas_por_cliente(messages: list) -> set:
+    """Compañías de origen que el cliente ya nombró explícitamente.
+
+    Solo mira mensajes entrantes: si se miraran también las respuestas del bot, una tabla o una
+    pregunta con las tres compañías parecería falsamente una confirmación del cliente.
+    """
+    encontradas = set()
+    for message in messages:
+        if message.get("message_type") != 0 or message.get("private"):
+            continue
+        texto = _texto_sin_tildes(message.get("content") or "")
+        for compania in ("movistar", "tuenti", "personal"):
+            if re.search(rf"\b{compania}\b", texto):
+                encontradas.add(compania)
+    return encontradas
+
+
+def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
+    """Valida errores comerciales graves antes de que una respuesta llegue a WhatsApp.
+
+    El prompt sigue siendo la guía principal, pero estos casos ya aparecieron en producción y
+    son suficientemente inequívocos para frenarlos por código y pedir una regeneración.
+    """
+    texto = _texto_sin_tildes(respuesta)
+    companias = _companias_informadas_por_cliente(messages)
+
+    pregunta_compania = re.search(
+        r"\b(?:de|en)\s+que\s+(?:compania|empresa)\b|"
+        r"\bque\s+(?:compania|empresa)\s+(?:tenes|usas|es|esta)\b",
+        texto,
+    )
+    if companias and pregunta_compania:
+        return f"volvió a preguntar la compañía aunque el cliente ya informó: {', '.join(sorted(companias))}"
+
+    cliente_dijo_empresa = any(
+        re.search(r"\b(?:empresa|cuit|monotributista)\b", _texto_sin_tildes(m.get("content") or ""))
+        for m in messages
+        if m.get("message_type") == 0 and not m.get("private")
+    )
+    if cliente_dijo_empresa and not companias and re.search(r"\$\s*\d", respuesta or ""):
+        return "dio un precio de Empresa antes de conocer la compañía de origen"
+
+    patrones_no_autorizados = (
+        (r"aument\w*.{0,45}regul\w*.{0,25}gobierno|gobierno.{0,45}regul\w*.{0,25}aument", "atribuyó los aumentos al gobierno"),
+        (r"(?:cambi\w*|eleg\w*|mov\w*).{0,35}fecha de vencimiento|fecha de vencimiento.{0,35}(?:cambi\w*|eleg\w*|mov\w*)", "prometió que se puede cambiar la fecha de vencimiento"),
+        (r"\bno es una estafa\b", "garantizó que no es una estafa"),
+        (r"(?:100\s*%|cien por ciento).{0,30}segur", "dio una garantía absoluta de seguridad"),
+        (r"\b(?:procedimiento|tramite|proceso) oficial\b", "presentó el procedimiento como oficial sin poder verificarlo"),
+    )
+    for patron, motivo in patrones_no_autorizados:
+        if re.search(patron, texto, flags=re.DOTALL):
+            return motivo
+    return None
 
 
 async def call_openrouter(messages: list, intentos: int = 3) -> str:
@@ -4448,14 +4581,15 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
                     resp.raise_for_status()
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
-                if content and _tiene_razonamiento_filtrado(content):
+                content_limpio = content.strip() if isinstance(content, str) else ""
+                if content_limpio and _tiene_razonamiento_filtrado(content_limpio):
                     logger.warning(f"OpenRouter devolvió contenido interno o texto en inglés "
                                    f"dentro de la respuesta "
                                    f"en el intento {intento}/{intentos}; se descarta y se reintenta.")
                     ultimo_error = "la respuesta traía el razonamiento interno del modelo"
                     continue
-                if content:
-                    return content
+                if content_limpio:
+                    return content_limpio
                 finish_reason = data["choices"][0].get("finish_reason")
                 logger.warning(f"OpenRouter devolvió contenido vacío en el intento {intento}/{intentos} "
                                 f"(finish_reason={finish_reason}); reintentando.")
@@ -4465,6 +4599,35 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
 
     logger.error(f"OpenRouter no devolvió contenido útil tras {intentos} intentos. Último error: {ultimo_error}")
     raise RuntimeError(f"OpenRouter no devolvió contenido útil tras {intentos} intentos: {ultimo_error}")
+
+
+async def _call_openrouter_respuesta_cliente(messages: list, historial_chatwoot: list,
+                                               intentos: int = 3) -> str:
+    """Genera una respuesta pública y descarta incoherencias conocidas antes de enviarla."""
+    pedido_base = list(messages)
+    pedido_actual = pedido_base
+    ultimo_motivo = ""
+    for intento in range(1, intentos + 1):
+        respuesta = await call_openrouter(pedido_actual)
+        motivo = _motivo_respuesta_incoherente(respuesta, historial_chatwoot)
+        if not motivo:
+            return respuesta
+        ultimo_motivo = motivo
+        logger.warning(
+            f"OpenRouter generó una respuesta comercial incoherente en el intento "
+            f"{intento}/{intentos}: {motivo}. Se descarta y se regenera."
+        )
+        pedido_actual = pedido_base + [{
+            "role": "system",
+            "content": (
+                f"[Control interno: la respuesta anterior fue descartada porque {motivo}. "
+                f"Redactá una respuesta nueva que respete el historial y todas las reglas. "
+                f"No menciones este control al cliente.]"
+            ),
+        }]
+    raise RuntimeError(
+        f"OpenRouter repitió una incoherencia comercial tras {intentos} intentos: {ultimo_motivo}"
+    )
 
 
 # --------------------------------------------------------------------------------------
@@ -5056,7 +5219,7 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
     reply = ""
     pedido_actual = messages
     for intento in range(1, 3):
-        candidato = await call_openrouter(pedido_actual)
+        candidato = await _call_openrouter_respuesta_cliente(pedido_actual, all_messages)
         intenta_derivar = (
             "Hola Camila, quiero avanzar" in candidato
             or (NUMERO_CAMILA and NUMERO_CAMILA in candidato)
@@ -5352,6 +5515,16 @@ async def process_conversation(conversation_id: int) -> None:
                 kinds.append(kind)
 
             notas_sistema = [{"role": "system", "content": build_camila_availability_note()}]
+            if history_raw:
+                notas_sistema.append({
+                    "role": "system",
+                    "content": (
+                        "[Nota interna, no la muestres] Esta conversación ya estaba en curso. "
+                        "Un nuevo saludo o texto genérico del anuncio NO borra lo hablado antes. "
+                        "Reutilizá la compañía, plan y datos que el cliente ya informó; no vuelvas "
+                        "a presentarte ni reinicies el embudo. Retomá desde el punto pendiente."
+                    ),
+                })
             if DERIVADO_LABEL in (labels or []):
                 # Caso real (04/10/2026, Bot 2, conv 111): la ficha interna no se guarda en
                 # Chatwoot (ver más abajo), así que el modelo no la ve en el historial y no
@@ -5383,7 +5556,7 @@ async def process_conversation(conversation_id: int) -> None:
                 + history
                 + batch_turns
             )
-            reply = await call_openrouter(messages)
+            reply = await _call_openrouter_respuesta_cliente(messages, all_messages)
 
             # Bloqueo determinístico: aunque el modelo diga por error que vio las fotos, ningún
             # link/ficha de derivación sale al cliente y nada llega a Sheets/ddd si Chatwoot no
