@@ -275,7 +275,14 @@ Tu función es:
 
 Camila realiza el ALTA / TRASPASO / PROCESAMIENTO FINAL.
 
-Presentate con tu nombre en el PRIMER mensaje de cada conversación nueva — decile que sos {BOT_NAME}, así el cliente sabe con quién está hablando desde el arranque. NO te presentes como "del equipo de Claro", "agente oficial de Claro" ni "asesora de Claro" (a pedido explícito, 04/10/2026). Si el cliente te pregunta de qué empresa sos o con quién trabajás, respondé con la verdad: que trabajás con Celtafone, agente oficial de Claro. No hace falta que sea un mensaje aparte, se puede meter en la misma primera respuesta, junto con la primera pregunta (ver sección 17).
+Presentate con tu nombre en el PRIMER mensaje de cada conversación nueva — decile que sos {BOT_NAME}, así el cliente sabe con quién está hablando desde el arranque. NO te presentes como "del equipo de Claro", "agente oficial de Claro" ni "asesora de Claro" (a pedido explícito, 04/10/2026).
+
+DISTINGUIR ESTAS DOS PREGUNTAS:
+- Si pregunta "¿de dónde sos/son?", "¿de qué ciudad son?" o dónde están ubicados, respondé
+  simplemente: "somos de Mar del Plata". NO menciones Celtafone, "agente oficial" ni agregues
+  una explicación institucional.
+- Si pregunta "¿quiénes son?", de qué EMPRESA son o con quién trabajan, respondé simplemente:
+  "somos agentes oficiales de Claro". NO menciones Celtafone.
 
 Ejemplo:
 
@@ -2069,6 +2076,10 @@ CELTAFONE Y EL MENSAJE AUTOMÁTICO DEL WHATSAPP DE CAMILA (a pedido explícito, 
 WhatsApp de Camila (el número {NUMERO_CAMILA}) y el negocio con el que trabajás. NUNCA le digas
 a un cliente que Celtafone es "otra empresa", que "no somos nosotros" ni nada parecido, aunque
 el cliente te mande una captura con ese nombre.
+
+Esta información se usa SOLO si el cliente ve "Celtafone" en el WhatsApp de Camila y pregunta
+por ese nombre. Para preguntas generales como "¿de dónde son?" o "¿quiénes son?", NO menciones
+Celtafone: respondé exactamente según la sección 1 (Mar del Plata / agentes oficiales de Claro).
 
 Ese WhatsApp responde SIEMPRE con un mensaje automático apenas el cliente le escribe (menú de
 opciones, "ver opciones", descuentos y precios de ejemplo). Ese automático es genérico y puede
@@ -4573,6 +4584,32 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
     """
     texto = _texto_sin_tildes(respuesta)
     companias = _companias_informadas_por_cliente(messages)
+    pendientes = _mensajes_entrantes_pendientes(messages)
+    texto_pendiente = " ".join(
+        _texto_sin_tildes(message.get("content") or "") for message in pendientes
+    )
+
+    pregunta_ubicacion = re.search(
+        r"\bde donde (?:sos|son)\b|\bde que ciudad (?:sos|son)\b|"
+        r"\bdonde (?:estan|estais) ubicad\w*\b",
+        texto_pendiente,
+    )
+    if pregunta_ubicacion:
+        if "mar del plata" not in texto:
+            return "no respondió Mar del Plata a una pregunta directa de ubicación"
+        if re.search(r"\bceltafone\b|\bagente\w* oficial\w*\b", texto):
+            return "mezcló la ubicación de Mar del Plata con información de Celtafone"
+
+    pregunta_identidad_empresa = re.search(
+        r"\bquienes son\b|\bustedes quienes son\b|\bde que empresa (?:sos|son)\b|"
+        r"\bcon quien trabajan\b",
+        texto_pendiente,
+    )
+    if pregunta_identidad_empresa:
+        if not re.search(r"\bagentes? oficiales? de claro\b", texto):
+            return "no respondió que son agentes oficiales de Claro a una pregunta de identidad"
+        if "celtafone" in texto:
+            return "mencionó Celtafone en una respuesta de identidad"
 
     pregunta_compania = re.search(
         r"\b(?:de|en|con)\s+(?:que|cual)\s+(?:compania|empresa)\b|"
@@ -4622,8 +4659,8 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
         (r"\b(?:podes|podras|se puede|te pueden|te dejan|vas a poder)\b.{0,45}(?:cambi\w*|eleg\w*|modific\w*|mov\w*|acomod\w*).{0,35}(?:fecha de vencimiento|vencimiento|fecha de pago)", "prometió que se puede cambiar la fecha de vencimiento"),
         (r"\b(?:no (?:es|somos|se trata de)(?: una| ninguna)? estafa|no te estan estafando)\b", "garantizó que no es una estafa"),
         (r"(?:100\s*%|cien por ciento|totalmente|completamente|absolutamente).{0,30}segur", "dio una garantía absoluta de seguridad"),
-        # La identidad autorizada "Celtafone, agente oficial de Claro" SÍ es válida cuando el
-        # cliente pregunta quiénes somos (sección 1). Lo inseguro es presentar el trámite o el
+        # "Somos agentes oficiales de Claro" SÍ es la identidad autorizada cuando el cliente
+        # pregunta quiénes somos (sección 1). Lo inseguro es presentar el trámite o el
         # procedimiento entero como "oficial" para disipar una sospecha de estafa.
         (r"\b(?:procedimiento|tramite|proceso)\s+oficial\b", "presentó el procedimiento como oficial sin poder verificarlo"),
     )

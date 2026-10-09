@@ -206,6 +206,33 @@ class ReglasDeNegocioTest(unittest.TestCase):
             "la otra línea de qué compañía es?", historial
         ))
 
+    def test_responde_ubicacion_solo_con_mar_del_plata(self):
+        historial = [
+            _mensaje(1, 1, "en qué compañía estás?"),
+            _mensaje(2, 0, "De donde son"),
+        ]
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "somos de Mar del Plata", historial
+        ))
+        self.assertIsNotNone(main._motivo_respuesta_incoherente(
+            "trabajamos con Celtafone, agente oficial de Claro", historial
+        ))
+        self.assertIsNotNone(main._motivo_respuesta_incoherente(
+            "trabajamos de forma online en todo el país", historial
+        ))
+
+    def test_responde_identidad_con_agentes_oficiales_de_claro(self):
+        historial = [_mensaje(1, 0, "Quienes son ustedes?")]
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "somos agentes oficiales de Claro", historial
+        ))
+        self.assertIsNotNone(main._motivo_respuesta_incoherente(
+            "somos de Mar del Plata", historial
+        ))
+        self.assertIsNotNone(main._motivo_respuesta_incoherente(
+            "somos Celtafone, agente oficial de Claro", historial
+        ))
+
     def test_bloquea_precio_empresa_sin_compania(self):
         historial = [_mensaje(1, 0, "la línea es de una empresa, con CUIT")]
         self.assertIn(
