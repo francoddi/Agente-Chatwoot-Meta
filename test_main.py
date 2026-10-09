@@ -36,11 +36,12 @@ def _metadata_seguimiento(sequence):
     }
 
 
-def _metadata_bot():
+def _metadata_bot(followup_closed=False):
     return {
         "data": {
             main.FOLLOWUP_METADATA_KEY: {
                 "kind": "bot_reply",
+                "followup_closed": followup_closed,
             }
         }
     }
@@ -292,6 +293,37 @@ class ReglasDeNegocioTest(unittest.TestCase):
         campos = main._parse_ficha_fields("Nombre: Juan\nEmail: arevalodavid@120.con")
         self.assertNotIn("Email", campos)
 
+    def test_un_pedido_visible_no_puede_cerrar_seguimientos(self):
+        pendientes = [
+            "dale, espero las fotos y con eso cerramos todo",
+            "me falta el código postal",
+            "cuando puedas mandame el dorso del DNI",
+            "te sirve ese plan?",
+        ]
+        for texto in pendientes:
+            with self.subTest(texto=texto):
+                self.assertTrue(main._respuesta_deja_algo_pendiente(texto))
+        self.assertFalse(main._respuesta_deja_algo_pendiente(
+            "no hay problema, cualquier cosa me escribís. que andes bien"
+        ))
+
+    def test_detecta_reloj_de_followup_perdido_por_redeploy(self):
+        ahora = 1_000_000
+        last = _mensaje(
+            9,
+            1,
+            "dale, espero las fotos",
+            metadata=_metadata_bot(),
+        )
+        last["created_at"] = ahora - main.FOLLOWUP_DELAY_MIN_SECONDS - 60
+        conversation = _conversacion_activa(
+            id=92,
+            last_non_activity_message=last,
+        )
+        self.assertTrue(main._es_candidata_followup_recuperado(conversation, ahora))
+        last["content_attributes"] = _metadata_bot(followup_closed=True)
+        self.assertFalse(main._es_candidata_followup_recuperado(conversation, ahora))
+
 
 class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
     async def test_no_duplica_el_mismo_aviso_de_falla_en_una_hora(self):
@@ -365,6 +397,21 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             _mensaje(1, 1, "pasame tu localidad y dirección"),
             _mensaje(2, 0, "Rosario"),
             _mensaje(3, 1, "te quedó alguna duda?", metadata=_metadata_seguimiento(1)),
+        ]
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
+            patch.object(main, "_fetch_conversation_messages", AsyncMock(return_value=messages)),
+            patch.object(main, "call_openrouter", AsyncMock()) as openrouter,
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        openrouter.assert_not_awaited()
+
+    async def test_no_sigue_si_la_ultima_respuesta_cerro_followups(self):
+        messages = [
+            _mensaje(1, 1, "pasame tu localidad y dirección", metadata=_metadata_bot()),
+            _mensaje(2, 0, "Rosario"),
+            _mensaje(3, 1, "gracias, que andes bien", metadata=_metadata_bot(True)),
         ]
         with (
             patch.object(main, "_get_conversation_for_followup",

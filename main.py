@@ -4814,19 +4814,47 @@ async def _barrido_pendientes_loop() -> None:
         return
     while True:
         try:
-            await asyncio.sleep(BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS)
             await _revisar_conversaciones_sin_responder()
         except Exception:
             logger.exception("Error en el barrido periódico de conversaciones sin responder.")
+        await asyncio.sleep(BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS)
 
 
 BARRIDO_PENDIENTES_MAX_HORAS = float(os.getenv("BARRIDO_PENDIENTES_MAX_HORAS", "6"))
+FOLLOWUP_RECOVERY_MAX_HORAS = float(os.getenv("FOLLOWUP_RECOVERY_MAX_HORAS", "6"))
 
 # Conversaciones ya avisadas por el "caso 2" (derivada sin etiqueta, ver más abajo) -- para no
 # mandar el mismo aviso al dueño cada BARRIDO_PENDIENTES_INTERVALO_SEGUNDOS para siempre por el
 # mismo caso. Vive en memoria (se resetea si el proceso reinicia), es aceptable: en el peor caso
 # se manda un aviso de más después de un reinicio, no se pierde ninguno.
 _derivaciones_alertadas: set = set()
+_followup_recovery_revisados: set = set()
+
+
+def _es_candidata_followup_recuperado(conversation: dict, ahora: float | None = None) -> bool:
+    """True si un reloj de seguimiento pudo perderse por un reinicio/redeploy.
+
+    La decisión final (datos realmente pasados, límite, intervención manual, etc.) sigue en
+    send_followup_if_needed; acá solo se seleccionan salidas recientes del propio bot que ya
+    superaron el mínimo de silencio.
+    """
+    ahora = time.time() if ahora is None else ahora
+    labels = conversation.get("labels") or []
+    last = conversation.get("last_non_activity_message") or {}
+    created_at = float(last.get("created_at") or 0)
+    edad = ahora - created_at
+    return bool(
+        conversation.get("id")
+        and PAUSE_LABEL not in labels
+        and DERIVADO_LABEL not in labels
+        and conversation.get("status") not in {"resolved", "closed", "snoozed"}
+        and conversation.get("can_reply") is not False
+        and last.get("message_type") == 1
+        and not last.get("private")
+        and _bot_message_kind(last) == "bot_reply"
+        and not _bot_cerro_followups(last)
+        and FOLLOWUP_DELAY_MIN_SECONDS <= edad <= FOLLOWUP_RECOVERY_MAX_HORAS * 3600
+    )
 
 
 async def _revisar_conversaciones_sin_responder() -> None:
@@ -4848,6 +4876,7 @@ async def _revisar_conversaciones_sin_responder() -> None:
     url = f"{CHATWOOT_URL}/api/v1/accounts/{CHATWOOT_ACCOUNT_ID}/conversations"
     limite = time.time() - BARRIDO_PENDIENTES_MAX_HORAS * 3600
     encontradas = 0
+    followups_recuperados = 0
     page = 1
     while True:
         try:
@@ -4883,6 +4912,28 @@ async def _revisar_conversaciones_sin_responder() -> None:
                                     f"un mensaje del cliente sin responder -- se reprograma.")
                     schedule_conversation_processing(conversation_id)
 
+            # Caso 1.5: un redeploy borra los asyncio timers en memoria. Si la última salida
+            # pertenece al bot, ya pasó el mínimo de silencio y no se revisó este mismo mensaje,
+            # reconstruir el seguimiento. send_followup_if_needed vuelve a validar TODO antes de
+            # enviar y descarta automáticamente a quien no llegó a pasar datos.
+            clave_followup = (conversation_id, last.get("id"))
+            if (_es_candidata_followup_recuperado(c)
+                    and clave_followup not in _followup_recovery_revisados):
+                existing_followup = _pending_followups.get(conversation_id)
+                if not (existing_followup and not existing_followup.done()):
+                    _followup_recovery_revisados.add(clave_followup)
+                    edad_silencio = max(0, time.time() - float(last.get("created_at") or 0))
+                    followups_recuperados += 1
+                    logger.warning(
+                        f"Barrido de pendientes: conversación {conversation_id} perdió o agotó "
+                        f"su reloj de seguimiento; se revalida ahora."
+                    )
+                    schedule_followup_check(
+                        conversation_id,
+                        wait_seconds=0,
+                        elapsed_seconds=edad_silencio,
+                    )
+
             # Caso 2 (18/09/2026, caso real: Muriel Vuotto): el bot mandó la derivación (el
             # link de Camila) pero la conversación no tiene la etiqueta DERIVADO_LABEL -- señal
             # de que el registro en Sheets falló y, en el peor de los casos, hasta el aviso al
@@ -4917,6 +4968,11 @@ async def _revisar_conversaciones_sin_responder() -> None:
     if encontradas:
         logger.warning(f"Barrido de pendientes: se encontraron y reprogramaron {encontradas} "
                         f"conversación(es) sin responder.")
+    if followups_recuperados:
+        logger.warning(
+            f"Barrido de pendientes: se reconstruyeron {followups_recuperados} "
+            f"seguimiento(s) potencialmente perdidos por reinicios."
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -5178,6 +5234,31 @@ def _bot_message_kind(message: dict) -> str | None:
     return kind if isinstance(kind, str) else None
 
 
+def _bot_cerro_followups(message: dict) -> bool:
+    data = (message.get("content_attributes") or {}).get("data") or {}
+    marker = data.get(FOLLOWUP_METADATA_KEY) or {}
+    return marker.get("followup_closed") is True
+
+
+def _respuesta_deja_algo_pendiente(texto: str) -> bool:
+    """Detecta pedidos/preguntas visibles que contradicen [FIN_SEGUIMIENTO].
+
+    Caso real (09/10/2026, conv 92): después de recibir todos los datos, el bot escribió
+    "espero las fotos" pero no hubo seguimiento. Si el modelo agrega por error la marca de
+    cierre a una respuesta que todavía pide algo, prevalece el texto visible.
+    """
+    t = _texto_sin_tildes(texto)
+    if "?" in (texto or ""):
+        return True
+    return bool(re.search(
+        r"\b(?:pasame|mandame|contame|decime)\b|"
+        r"\bme falta\b|\bnecesito que\b|"
+        r"\bespero (?:la|las|el|los|tu|tus)\b|\bquedo a la espera\b|"
+        r"\bcuando (?:puedas|tengas).{0,40}(?:manda\w*|pasa\w*|avisa\w*)\b",
+        t,
+    ))
+
+
 def _followup_sequence(message: dict) -> int | None:
     if _bot_message_kind(message) != "followup":
         return None
@@ -5202,7 +5283,8 @@ def _followups_enviados(messages: list) -> int:
     return max(secuencias, default=0)
 
 
-def schedule_followup_check(conversation_id: int) -> None:
+def schedule_followup_check(conversation_id: int, wait_seconds: float | None = None,
+                            elapsed_seconds: float | None = None) -> None:
     if not FOLLOWUP_ENABLED:
         return
 
@@ -5212,8 +5294,11 @@ def schedule_followup_check(conversation_id: int) -> None:
 
     # Tiempo al azar entre los dos valores configurados, elegido de nuevo en cada programación
     # (no siempre exactamente el mismo tiempo).
-    wait_seconds = random.uniform(FOLLOWUP_DELAY_MIN_SECONDS, FOLLOWUP_DELAY_MAX_SECONDS)
-    task = asyncio.create_task(_followup_after_delay(conversation_id, wait_seconds))
+    if wait_seconds is None:
+        wait_seconds = random.uniform(FOLLOWUP_DELAY_MIN_SECONDS, FOLLOWUP_DELAY_MAX_SECONDS)
+    task = asyncio.create_task(
+        _followup_after_delay(conversation_id, wait_seconds, elapsed_seconds)
+    )
     _pending_followups[conversation_id] = task
 
 
@@ -5223,10 +5308,14 @@ def cancel_followup_check(conversation_id: int) -> None:
         existing.cancel()
 
 
-async def _followup_after_delay(conversation_id: int, wait_seconds: float) -> None:
+async def _followup_after_delay(conversation_id: int, wait_seconds: float,
+                                elapsed_seconds: float | None = None) -> None:
     try:
         await asyncio.sleep(wait_seconds)
-        await send_followup_if_needed(conversation_id, wait_seconds)
+        await send_followup_if_needed(
+            conversation_id,
+            elapsed_seconds if elapsed_seconds is not None else wait_seconds,
+        )
     except asyncio.CancelledError:
         # La conversación siguió (nueva respuesta real, o el tema se cerró): se reprogramó o
         # se canceló desde process_conversation.
@@ -5290,6 +5379,11 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         # llamadas manuales accidentales.
         logger.info(f"Conversación {conversation_id}: el último mensaje ya era un seguimiento; "
                     f"no se encadena otro.")
+        return
+
+    if _bot_cerro_followups(ultimo):
+        logger.info(f"Conversación {conversation_id}: la última respuesta cerró explícitamente "
+                    f"los seguimientos; no se manda nada.")
         return
 
     if _bot_message_kind(ultimo) != "bot_reply":
@@ -5699,6 +5793,12 @@ async def process_conversation(conversation_id: int) -> None:
             # seguimiento automático después de esta respuesta (ver NOTA TÉCNICA en el SYSTEM_PROMPT).
             close_followups = FOLLOWUP_CLOSE_MARKER in reply
             reply = reply.replace(FOLLOWUP_CLOSE_MARKER, "").strip()
+            if close_followups and _respuesta_deja_algo_pendiente(reply):
+                logger.warning(
+                    f"Conversación {conversation_id}: el modelo marcó FIN_SEGUIMIENTO pero su "
+                    f"respuesta todavía pide algo al cliente; se ignora la marca de cierre."
+                )
+                close_followups = False
 
             # Corrección de un dato después de derivar (ver sección 49.2 del SYSTEM_PROMPT y
             # _corregir_dato_sheets): el modelo puede agregar una o más marcas [CORRECCION_DATO ...] al
@@ -5751,7 +5851,20 @@ async def process_conversation(conversation_id: int) -> None:
                 # Chatwoot) solo como referencia visual, pero no cumplía ninguna función real.
                 if "Hola Camila, quiero avanzar" in bubble:
                     continue
-                await send_message(conversation_id, bubble, private=False)
+                metadata_respuesta = {
+                    "data": {
+                        FOLLOWUP_METADATA_KEY: {
+                            "kind": "bot_reply",
+                            "followup_closed": close_followups,
+                        }
+                    }
+                }
+                await send_message(
+                    conversation_id,
+                    bubble,
+                    private=False,
+                    content_attributes=metadata_respuesta,
+                )
                 algo_enviado = True
 
             exito = True
