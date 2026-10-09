@@ -87,6 +87,31 @@ class ReglasDeNegocioTest(unittest.TestCase):
             "perfecto, me falta solamente la foto del dorso"
         ))
 
+    def test_filtra_respuestas_en_ingles_aunque_no_parezcan_razonamiento(self):
+        casos = [
+            "Hello! How can I help you today?",
+            "The customer has already sent the required data.",
+            "Please send the front and back photos.",
+            "Thanks!",
+            "Great choice! Everything looks perfect.",
+            "I can help you with that.",
+            "perfecto, please mandame la otra foto",
+        ]
+        for texto in casos:
+            with self.subTest(texto=texto):
+                self.assertTrue(main._tiene_razonamiento_filtrado(texto))
+
+    def test_no_bloquea_anglicismos_normales_dentro_del_espanol(self):
+        casos = [
+            "te paso el link de WhatsApp",
+            "me falta tu email para completar los datos",
+            "el plan incluye 30 GB de internet",
+            "podés abrir la app de Claro?",
+        ]
+        for texto in casos:
+            with self.subTest(texto=texto):
+                self.assertFalse(main._tiene_razonamiento_filtrado(texto))
+
 
 class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
     async def test_registro_sin_fotos_se_bloquea_antes_de_sheets(self):

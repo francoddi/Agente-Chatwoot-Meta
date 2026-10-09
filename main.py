@@ -246,6 +246,11 @@ No le muestres precios, no le pidas datos, no la derives. Ver sección 33.3.
 
 Esta regla tiene prioridad máxima.
 
+IDIOMA OBLIGATORIO: respondé siempre en español argentino. Nunca redactes mensajes en inglés,
+ni siquiera parcialmente, y nunca muestres análisis, razonamientos, instrucciones internas o
+encabezados técnicos. Marcas y términos inevitables como WhatsApp, email, internet o GB sí pueden
+aparecer dentro de una respuesta en español.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. IDENTIDAD
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -4303,11 +4308,62 @@ _PATRONES_META_SIN_RESPUESTA = (
     "no se necesita responder", "sin enviar respuesta",
 )
 
+# Palabras funcionales y vocabulario inequívocamente inglés que aparecen en respuestas o
+# razonamientos completos. Se excluyen deliberadamente préstamos habituales en castellano
+# (internet, email, link, WhatsApp, plan, app, GB) para no bloquear respuestas comerciales sanas.
+_PALABRAS_INGLES = {
+    "the", "and", "that", "this", "these", "those", "with", "without", "from", "into",
+    "your", "you", "yours", "our", "ours", "their", "they", "them", "there", "here",
+    "have", "has", "had", "having", "should", "would", "could", "will", "must", "need",
+    "needs", "needed", "already", "still", "missing", "sent", "send", "provided",
+    "supplied", "received", "required", "customer", "client", "user", "conversation",
+    "message", "response", "answer", "reply", "current", "status", "checking", "reviewing",
+    "validating", "analyzing", "reasoning", "thinking", "information", "details", "data",
+    "before", "after", "because", "however", "therefore", "then", "now", "only", "also",
+    "please", "photo", "photos", "front", "back", "complete", "incomplete", "confirm",
+    "proceed", "handoff", "followup", "correct", "incorrect", "customer's", "user's",
+    "can", "help", "understand", "concern", "great", "choice", "awesome", "everything",
+    "looks", "ready", "upload", "document", "wait", "later", "come", "back", "let's",
+}
+
+_PALABRAS_INGLES_INEQUIVOCAS = {
+    "customer", "supplied", "required", "please", "missing", "already", "should", "would",
+    "could", "reviewing", "validating", "analyzing", "reasoning", "thinking", "response",
+    "answer", "reply", "handoff", "followup", "proceed", "incomplete", "thanks", "awesome",
+    "understand", "concern", "upload",
+}
+
+_INICIOS_INGLES_CORTOS = (
+    "hello", "hi ", "hi!", "thanks", "thank you", "sorry", "sure", "of course",
+    "please ", "good morning", "good afternoon", "good evening", "great", "awesome",
+    "excellent", "got it", "all right", "all set", "okay", "yes", "no problem",
+    "let's", "looks like", "it seems", "i can ", "i understand",
+)
+
+
+def _parece_texto_en_ingles(texto: str) -> bool:
+    """Detecta una respuesta redactada en inglés sin confundir anglicismos comerciales.
+
+    No pretende identificar el idioma de cualquier texto del mundo: es una barrera de salida
+    para este bot, cuyas respuestas válidas siempre son en español. Dos palabras inglesas fuertes
+    o un saludo/frase corta en inglés alcanzan para descartar y regenerar la respuesta.
+    """
+    t = (texto or "").strip().lower()
+    if not t:
+        return False
+    limpio = t.lstrip("*_#` >\n\t")
+    if limpio.startswith(_INICIOS_INGLES_CORTOS):
+        return True
+    tokens = re.findall(r"[a-z]+(?:'[a-z]+)?", limpio)
+    if any(token in _PALABRAS_INGLES_INEQUIVOCAS for token in tokens):
+        return True
+    coincidencias = {token for token in tokens if token in _PALABRAS_INGLES}
+    return len(coincidencias) >= 2
+
 
 def _tiene_razonamiento_filtrado(texto: str) -> bool:
-    """El modelo a veces, en vez de responder de verdad, narra su propio razonamiento o su
-    decisión de no responder -- y esa narración sale tal cual en el contenido de la respuesta,
-    así que el cliente la recibe como si fuera un mensaje real.
+    """Bloquea razonamiento interno, narraciones de no-respuesta y cualquier texto en inglés
+    antes de que Chatwoot pueda entregárselo al cliente.
 
     Casos reales encontrados en vivo:
     - 21/09/2026: 10 mensajes en 2 conversaciones empezaban con "silently thinking." seguido de
@@ -4332,6 +4388,8 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
         "we need to ", "i need to ", "the user has ", "the user is ",
         "identify the core misunderstanding",
     )):
+        return True
+    if _parece_texto_en_ingles(texto):
         return True
     return any(p in t for p in _PATRONES_META_SIN_RESPUESTA)
 
@@ -4365,7 +4423,8 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
                 if content and _tiene_razonamiento_filtrado(content):
-                    logger.warning(f"OpenRouter devolvió razonamiento interno dentro de la respuesta "
+                    logger.warning(f"OpenRouter devolvió contenido interno o texto en inglés "
+                                   f"dentro de la respuesta "
                                    f"en el intento {intento}/{intentos}; se descarta y se reintenta.")
                     ultimo_error = "la respuesta traía el razonamiento interno del modelo"
                     continue
