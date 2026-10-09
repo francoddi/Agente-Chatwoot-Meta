@@ -283,6 +283,8 @@ DISTINGUIR ESTAS DOS PREGUNTAS:
   una explicación institucional.
 - Si pregunta "¿quiénes son?", de qué EMPRESA son o con quién trabajan, respondé simplemente:
   "somos agentes oficiales de Claro". NO menciones Celtafone.
+- Si junta las dos preguntas (por ejemplo "¿de dónde son y quiénes son?"), respondé ambas:
+  "somos de Mar del Plata y somos agentes oficiales de Claro". NO menciones Celtafone.
 
 Ejemplo:
 
@@ -2376,8 +2378,9 @@ tus propias palabras, no repitas siempre lo mismo):
 
 - Es un trámite 100% remoto — la foto es justamente lo que reemplaza tener que ir a algún lado,
   no hace falta presentarse en ningún local para nada de esto.
-- Los datos son solo para que Camila (la persona que hace el alta) tenga todo listo, no se
-  comparten con nadie más.
+- Los datos son para preparar el alta y dejárselos listos a Camila. No prometas literalmente
+  que "no se comparten con nadie más": el proceso usa los sistemas necesarios para gestionar
+  la conversación, analizar la documentación y registrar la operación.
 - Ya lo está haciendo así toda la gente que se pasa por este medio, es el procedimiento normal,
   no algo excepcional que le estás pidiendo solo a él/ella.
 - Si la duda es específicamente por mandar la foto del DNI físico, se le puede ofrecer la
@@ -2410,7 +2413,8 @@ Camila al momento del alta — {BOT_NAME} no valida nada, solo recolecta los dat
 Flujo:
 
 {BOT_NAME.upper()} JUNTA TODOS LOS DATOS (incluido DNI/CUIT y las fotos del documento) → CIERRA
-→ CLIENTE ESCRIBE A CAMILA CON LA FICHA COMPLETA
+→ CLIENTE LE ESCRIBE A CAMILA UN MENSAJE SIMPLE DICIENDO QUE VIENE DE PARTE DE {BOT_NAME}
+→ LA FICHA COMPLETA QUEDA REGISTRADA INTERNAMENTE; EL CLIENTE NO LA COPIA NI LA REENVÍA
 → CAMILA VALIDA EN EL SISTEMA Y HACE EL ALTA.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2432,6 +2436,17 @@ Si preguntan:
 "eso lo revisan cuando cargan el cambio"
 
 No prometer aprobación.
+
+Tampoco digas que no tener deuda "agiliza" o garantiza la portabilidad. Podés decir que la
+deuda y la elegibilidad se revisan al cargar el alta, sin adelantar el resultado.
+
+Si preguntan por roaming, solo podés afirmar el beneficio general escrito en la tabla que
+corresponda. NO inventes países incluidos, cantidad de datos disponible afuera, ni prometas
+que se usa "como en Argentina" o "sin costo extra" si esa información no figura en la tabla.
+
+Si preguntan por los contactos al cambiar de número, no garantices que nunca se pierden: pueden
+estar guardados en el teléfono, una cuenta sincronizada o la SIM. Recomendá verificar que estén
+sincronizados o hacer una copia antes de cambiar el número.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 56. OBJECIONES
@@ -2575,6 +2590,10 @@ ofrecerle que verifique la identidad/canal por los medios oficiales de Claro ant
 Si el cliente dijo que es EMPRESA/CUIT pero todavía no informó si viene de Movistar, Tuenti o
 Personal, no des ningún precio de ejemplo: las tablas de empresa son distintas. Primero confirmá
 la compañía y recién ahí mostrale el precio exacto.
+
+No asegures que un abono futuro "seguro aumenta" ni cuánto podría aumentar. No digas que una
+línea dada de baja "pierde el número para siempre". Explicá solamente que no debe pedir la baja
+antes de completar la portabilidad porque puede impedir conservar el número.
 
 Podés decir:
 
@@ -3223,12 +3242,12 @@ async def _get_conversation_for_followup(conversation_id: int) -> dict | None:
         return None
 
 
-async def add_conversation_label(conversation_id, label: str) -> None:
+async def add_conversation_label(conversation_id, label: str) -> bool:
     """Agrega una etiqueta a la conversación. Chatwoot reemplaza la lista completa de etiquetas
     en cada POST (no es incremental), así que hay que traer las que ya tiene y sumarle la nueva."""
     current = await get_conversation_labels(conversation_id)
     if label in current:
-        return  # ya la tiene, no hace falta hacer nada
+        return True  # ya la tiene, no hace falta hacer nada
     nuevas = current + [label]
     url = f"{_chatwoot_base(conversation_id)}/labels"
     try:
@@ -3236,8 +3255,10 @@ async def add_conversation_label(conversation_id, label: str) -> None:
             resp = await client.post(url, headers=_chatwoot_headers(), json={"labels": nuevas})
             resp.raise_for_status()
         logger.info(f"Conversación {conversation_id}: etiqueta '{label}' agregada.")
+        return True
     except Exception as e:
         logger.error(f"No se pudo agregar la etiqueta '{label}' a la conversación {conversation_id}: {e}")
+        return False
 
 
 # --------------------------------------------------------------------------------------
@@ -3623,7 +3644,9 @@ async def _corregir_dato_sheets(telefono: str, campo: str, valor: str) -> bool:
 
     # Mismo truco que en log_to_google_sheets: forzar texto para que Sheets no reinterprete una
     # fecha como número de serie interno.
-    valor_celda_nueva = f"'{valor}" if campo == "Fecha de nacimiento" else valor
+    valor_celda_nueva = (
+        f"'{valor}" if campo == "Fecha de nacimiento" else _valor_seguro_sheets(valor)
+    )
     encoded_cell = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!{columna}{fila_encontrada}", safe="")
     update_url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
@@ -3908,7 +3931,7 @@ _COLUMNAS_ACTUALIZABLES = [4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 18, 21]
 _COLUMNAS_DEL_TITULAR = [5, 6]  # DNI y F. nac: si cambia el titular, los viejos ya no sirven
 
 
-async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> None:
+async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> bool:
     """Cuando llega una ficha para un (número a portar, teléfono) que YA tiene fila, actualiza
     esa fila con los datos que cambiaron, en vez de descartar la ficha nueva entera.
 
@@ -3926,7 +3949,7 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> N
     misma ficha), no se toca nada."""
     token = await _get_sheets_access_token()
     if not token:
-        return
+        return False
     base = f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}/values"
     headers = {"Authorization": f"Bearer {token}"}
     try:
@@ -3943,7 +3966,7 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> N
                     fila_n = idx + 1
                     break
             if fila_n is None:
-                return
+                return False
             # FORMULA para comparar las fotos por su =HYPERLINK(...) y no por el texto visible.
             resp = await client.get(
                 f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}:V{fila_n}', safe='')}",
@@ -3981,7 +4004,7 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> N
                     cambios.append((i, row[i]))
             if not cambios:
                 logger.info(f"Fila {fila_n} de Sheets ya está igual a la ficha nueva, no se toca.")
-                return
+                return True
             body = {"valueInputOption": "USER_ENTERED", "data": [
                 {"range": f"{GOOGLE_SHEETS_SHEET_NAME}!{chr(65 + i)}{fila_n}", "values": [[valor]]}
                 for i, valor in cambios
@@ -3992,14 +4015,24 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> N
                     f"{', '.join(f'{chr(65 + i)}={_normalizar(v)[:40]!r}' for i, v in cambios)}")
         if any(i in (8, 9) for i, _ in cambios):
             await _forzar_links_visibles(f"{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}")
+        return True
     except Exception as e:
         logger.error(f"No se pudo actualizar la fila existente de {numero!r}/{telefono!r} con la "
                      f"ficha corregida: {e}")
         await _avisar_error_sheets(row)
+        return False
+
+
+def _valor_seguro_sheets(valor) -> str:
+    """Fuerza texto cuando un dato del cliente podría interpretarse como fórmula."""
+    texto = str(valor or "")
+    if texto.startswith(("=", "+", "-", "@")):
+        return f"'{texto}"
+    return texto
 
 
 async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
-                                 foto_dni_frente: str = "", foto_dni_dorso: str = "") -> None:
+                                 foto_dni_frente: str = "", foto_dni_dorso: str = "") -> bool:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (re-confirmado contra el
     encabezado real el 26/09/2026, después de que el equipo insertó una columna sin nombre
@@ -4036,7 +4069,8 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     anotada por separado en el tracking aunque los demás datos se repitan.
     """
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
-        return
+        logger.error("Google Sheets no está configurado; no se puede registrar la derivación.")
+        return False
 
     # Chequeo de duplicados (17/09/2026, caso real: Patricia Susana Deheza quedó cargada DOS
     # veces, 6 filas para 3 números -- una carrera entre dos webhooks casi simultáneos, cada uno
@@ -4080,24 +4114,24 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             "",  # Vendedora (la completa el equipo)
             "",  # Fecha portación (la completa el equipo)
             fecha_venta,
-            campos.get("Nombre", ""),
-            campos.get("DNI", "") or campos.get("CUIT", ""),
+            _valor_seguro_sheets(campos.get("Nombre", "")),
+            _valor_seguro_sheets(campos.get("DNI", "") or campos.get("CUIT", "")),
             fecha_nacimiento_celda,  # F. nac (se lee de la foto del DNI, si el cliente la mandó)
             "",  # Columna sin nombre que el equipo insertó entre F. nac y Foto DNI (26/09/2026)
             foto_frente,  # Foto DNI (link directo a Chatwoot, si el cliente la mandó)
             foto_dorso,  # Foto DNI dorso (ídem)
-            campos.get("Email", ""),
-            campos.get("Compañía actual", "") or ("LÍNEA NUEVA" if es_linea_nueva else ""),
-            campos.get("Tipo de cliente", ""),  # Segmento
-            campos.get("Provincia", ""),
-            campos.get("Localidad", ""),
-            campos.get("Dirección", ""),
+            _valor_seguro_sheets(campos.get("Email", "")),
+            _valor_seguro_sheets(campos.get("Compañía actual", "") or ("LÍNEA NUEVA" if es_linea_nueva else "")),
+            _valor_seguro_sheets(campos.get("Tipo de cliente", "")),  # Segmento
+            _valor_seguro_sheets(campos.get("Provincia", "")),
+            _valor_seguro_sheets(campos.get("Localidad", "")),
+            _valor_seguro_sheets(campos.get("Dirección", "")),
             "",  # Altura
             "",  # Piso/depto
-            campos.get("Código postal", ""),
-            numero or ("LÍNEA NUEVA" if es_linea_nueva else ""),
-            telefono,
-            plan_fila,
+            _valor_seguro_sheets(campos.get("Código postal", "")),
+            _valor_seguro_sheets(numero or ("LÍNEA NUEVA" if es_linea_nueva else "")),
+            _valor_seguro_sheets(telefono),
+            _valor_seguro_sheets(plan_fila),
             # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
         ]
         if clave in ya_cargados:
@@ -4106,11 +4140,16 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             logger.warning(f"log_to_google_sheets: ya existe una fila para {campos.get('Nombre', '')!r} "
                             f"(número {numero!r}, teléfono {telefono!r}) -- no se duplica, se "
                             f"actualiza con los datos que hayan cambiado.")
-            await _actualizar_fila_existente(numero, telefono, row)
+            if not await _actualizar_fila_existente(numero, telefono, row):
+                return False
             continue
         updated_range = await append_google_sheets_row(row)
-        if updated_range:
-            await _forzar_links_visibles(updated_range)
+        if not updated_range:
+            return False
+        await _forzar_links_visibles(updated_range)
+        # Evita duplicar dentro del mismo lote si el modelo repitió por error un número.
+        ya_cargados.add(clave)
+    return True
 
 
 async def _fetch_conversation_messages(conversation_id, minimo: int = None) -> list:
@@ -4379,16 +4418,31 @@ async def build_message_content(message: dict):
     attachments = message.get("attachments") or []
     text = (message.get("content") or "").strip()
 
-    image_att = next((a for a in attachments if a.get("file_type") == "image"), None)
+    image_attachments = [a for a in attachments if a.get("file_type") == "image"]
     audio_att = next((a for a in attachments if a.get("file_type") == "audio"), None)
+    pdf_attachments = [a for a in attachments if a.get("file_type") == "file"
+                       and (a.get("extension") or "").lower() == "pdf"]
 
-    pdf_att = next((a for a in attachments if a.get("file_type") == "file"
-                    and (a.get("extension") or "").lower() == "pdf"), None)
-
-    if image_att:
-        return await build_image_content(image_att, text), "image"
-    if pdf_att:
-        return await build_pdf_content(pdf_att, text), "pdf"
+    documentos = [("image", a) for a in image_attachments] + [
+        ("pdf", a) for a in pdf_attachments
+    ]
+    if documentos:
+        # Chatwoot puede agrupar frente y dorso en un único mensaje. Antes se usaba next()
+        # y OpenRouter veía solamente el primer archivo, aunque la barrera de DNI contara los
+        # dos. Combinar todos los bloques garantiza que el modelo vea cada adjunto recibido.
+        partes = []
+        for indice, (tipo, attachment) in enumerate(documentos, start=1):
+            contenido = (
+                await build_image_content(attachment, text if indice == 1 else "")
+                if tipo == "image"
+                else await build_pdf_content(attachment, text if indice == 1 else "")
+            )
+            if isinstance(contenido, list):
+                partes.extend(contenido)
+            else:
+                partes.append({"type": "text", "text": contenido})
+        tipo = "documents" if len(documentos) > 1 else documentos[0][0]
+        return partes, tipo
     if audio_att:
         return await build_audio_content(audio_att, text), "audio"
     return (text or "(mensaje vacío)"), "text"
@@ -4514,6 +4568,11 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     inicio_sin_markdown = t.lstrip("*_#` >\n\t")
     inicio_sin_markdown = re.sub(r"^(?:\d+[.)\-:]\s*)+", "", inicio_sin_markdown)
     inicio_sin_tildes = _texto_sin_tildes(inicio_sin_markdown)
+    if re.search(
+        r"\[(?:internal[_ ]?note|nota[_ ]?interna|control[_ ]?interno|analysis|thinking)\]",
+        t,
+    ):
+        return True
     if any(marca in t for marca in ("<analysis", "</analysis>", "<thinking", "</thinking>")):
         return True
     if inicio_sin_tildes.startswith(_INICIOS_RAZONAMIENTO_INTERNO_ES):
@@ -4594,17 +4653,18 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
         r"\bdonde (?:estan|estais) ubicad\w*\b",
         texto_pendiente,
     )
-    if pregunta_ubicacion:
-        if "mar del plata" not in texto:
-            return "no respondió Mar del Plata a una pregunta directa de ubicación"
-        if re.search(r"\bceltafone\b|\bagente\w* oficial\w*\b", texto):
-            return "mezcló la ubicación de Mar del Plata con información de Celtafone"
-
     pregunta_identidad_empresa = re.search(
         r"\bquienes son\b|\bustedes quienes son\b|\bde que empresa (?:sos|son)\b|"
         r"\bcon quien trabajan\b",
         texto_pendiente,
     )
+    if pregunta_ubicacion:
+        if "mar del plata" not in texto:
+            return "no respondió Mar del Plata a una pregunta directa de ubicación"
+        if "celtafone" in texto:
+            return "mezcló la ubicación de Mar del Plata con información de Celtafone"
+        if re.search(r"\bagente\w* oficial\w*\b", texto) and not pregunta_identidad_empresa:
+            return "mezcló una respuesta solo de ubicación con la identidad comercial"
     if pregunta_identidad_empresa:
         if not re.search(r"\bagentes? oficiales? de claro\b", texto):
             return "no respondió que son agentes oficiales de Claro a una pregunta de identidad"
@@ -4663,6 +4723,13 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
         # pregunta quiénes somos (sección 1). Lo inseguro es presentar el trámite o el
         # procedimiento entero como "oficial" para disipar una sospecha de estafa.
         (r"\b(?:procedimiento|tramite|proceso)\s+oficial\b", "presentó el procedimiento como oficial sin poder verificarlo"),
+        (r"\b(?:es|son|sirve|sirven|la pedimos|las pedimos).{0,35}\bpara validar (?:los )?datos\b", "atribuyó al bot una validación de datos que hace Camila"),
+        (r"\b(?:no tener|no tenes|no tenés|no debes|no debés|no debias|no debías).{0,35}\bdeuda\b.{0,35}\bagiliz\w*\b|\bdeuda\b.{0,35}\bagiliz\w*\b", "afirmó sin respaldo que no tener deuda agiliza la portabilidad"),
+        (r"\broaming\b.{0,90}\b(?:sin (?:pagar|costo).{0,15}extra|como si estuvieras (?:aca|en argentina))\b|\b(?:sin (?:pagar|costo).{0,15}extra|como si estuvieras (?:aca|en argentina))\b.{0,90}\broaming\b", "inventó condiciones específicas del roaming"),
+        (r"\bcontactos?\b.{0,50}\b(?:nunca se pierd\w*|siempre (?:quedan|estan) guardad\w*)\b|\b(?:nunca se pierd\w*|siempre (?:quedan|estan) guardad\w*)\b.{0,50}\bcontactos?\b", "garantizó que los contactos nunca se pierden"),
+        (r"\bseguro\b.{0,30}\baument\w*\b|\bva a aumentar\b.{0,20}\b(?:mucho|bastante)\b", "predijo un aumento futuro no verificable"),
+        (r"\b(?:das|dar|pedis|pedís) de baja\b.{0,70}\bperd\w*\b.{0,25}\bpara siempre\b", "afirmó que una baja hace perder el número para siempre"),
+        (r"\bno se comparten con nadie mas\b", "prometió que los datos no pasan por ningún otro sistema"),
     )
     for patron, motivo in patrones_no_autorizados:
         if re.search(patron, texto, flags=re.DOTALL):
@@ -4676,6 +4743,10 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
                 continue
             return motivo
     return None
+
+
+class OpenRouterContenidoBloqueadoError(RuntimeError):
+    """El proveedor rechazó el contenido por seguridad; reintentar el mismo historial no ayuda."""
 
 
 async def call_openrouter(messages: list, intentos: int = 3) -> str:
@@ -4705,6 +4776,18 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
                     logger.error(f"OpenRouter devolvió error {resp.status_code}: {resp.text[:2000]}")
                     resp.raise_for_status()
                 data = resp.json()
+                error_api = data.get("error") if isinstance(data, dict) else None
+                if error_api:
+                    detalle_error = json.dumps(error_api, ensure_ascii=False)[:1000]
+                    if re.search(
+                        r"prohibited[_ ]?content|content[_ ]?blocked|safety|policy",
+                        detalle_error,
+                        flags=re.IGNORECASE,
+                    ):
+                        raise OpenRouterContenidoBloqueadoError(
+                            "OpenRouter bloqueó el contenido por su política de seguridad"
+                        )
+                    raise RuntimeError(f"OpenRouter devolvió un error en HTTP 200: {detalle_error}")
                 content = data["choices"][0]["message"]["content"]
                 content_limpio = content.strip() if isinstance(content, str) else ""
                 if content_limpio and _tiene_razonamiento_filtrado(content_limpio):
@@ -4718,6 +4801,10 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
                 finish_reason = data["choices"][0].get("finish_reason")
                 logger.warning(f"OpenRouter devolvió contenido vacío en el intento {intento}/{intentos} "
                                 f"(finish_reason={finish_reason}); reintentando.")
+        except OpenRouterContenidoBloqueadoError:
+            # Reintentar el mismo contenido nueve veces no cambia una decisión de seguridad.
+            # El flujo superior pausa la conversación y avisa una sola vez al responsable.
+            raise
         except Exception as e:
             ultimo_error = e
             logger.error(f"Error llamando a OpenRouter (intento {intento}/{intentos}): {e}")
@@ -4828,7 +4915,10 @@ FOLLOWUP_RECOVERY_MAX_HORAS = float(os.getenv("FOLLOWUP_RECOVERY_MAX_HORAS", "6"
 # mismo caso. Vive en memoria (se resetea si el proceso reinicia), es aceptable: en el peor caso
 # se manda un aviso de más después de un reinicio, no se pierde ninguno.
 _derivaciones_alertadas: set = set()
-_followup_recovery_revisados: set = set()
+_followup_recovery_revisados: dict[tuple, float] = {}
+FOLLOWUP_RECOVERY_RETRY_SECONDS = float(
+    os.getenv("FOLLOWUP_RECOVERY_RETRY_SECONDS", "900")
+)
 
 
 def _es_candidata_followup_recuperado(conversation: dict, ahora: float | None = None) -> bool:
@@ -4917,11 +5007,16 @@ async def _revisar_conversaciones_sin_responder() -> None:
             # reconstruir el seguimiento. send_followup_if_needed vuelve a validar TODO antes de
             # enviar y descarta automáticamente a quien no llegó a pasar datos.
             clave_followup = (conversation_id, last.get("id"))
+            ultima_revision_followup = _followup_recovery_revisados.get(clave_followup, 0)
             if (_es_candidata_followup_recuperado(c)
-                    and clave_followup not in _followup_recovery_revisados):
+                    and time.time() - ultima_revision_followup
+                    >= FOLLOWUP_RECOVERY_RETRY_SECONDS):
                 existing_followup = _pending_followups.get(conversation_id)
                 if not (existing_followup and not existing_followup.done()):
-                    _followup_recovery_revisados.add(clave_followup)
+                    # Si una dependencia falla, el mismo mensaje vuelve a evaluarse después
+                    # del intervalo. Antes quedaba marcado para siempre apenas se programaba,
+                    # incluso si Chatwoot/OpenRouter fallaban antes del envío.
+                    _followup_recovery_revisados[clave_followup] = time.time()
                     edad_silencio = max(0, time.time() - float(last.get("created_at") or 0))
                     followups_recuperados += 1
                     logger.warning(
@@ -5088,8 +5183,8 @@ async def _revisar_ventas_trabadas() -> None:
                     _recuperacion_revisadas[conversation_id] = ultimo_msj
                     continue
                 campos = await _revisar_conversacion_para_recuperar(conversation_id, messages)
-                _recuperacion_revisadas[conversation_id] = ultimo_msj
                 if not campos:
+                    _recuperacion_revisadas[conversation_id] = ultimo_msj
                     continue
                 logger.warning(f"Revisor de ventas: conversación {conversation_id} tenía una venta "
                                f"lista sin derivar ({campos.get('Nombre')!r}) -- se registra.")
@@ -5099,6 +5194,9 @@ async def _revisar_ventas_trabadas() -> None:
                 # momento, así que mejor vacía y que el equipo la complete viendo la foto.
                 campos = {**campos, "Fecha de nacimiento": ""}
                 await asyncio.shield(_registrar_derivacion_completa(conversation_id, campos, messages))
+                # Marcarla solo después de que Sheets, el aviso y la etiqueta terminaron bien.
+                # Si algo falla, el próximo barrido vuelve a intentarlo.
+                _recuperacion_revisadas[conversation_id] = ultimo_msj
                 recibio_link = any(m.get("message_type") == 1 and NUMERO_CAMILA
                                    and NUMERO_CAMILA in (m.get("content") or "") for m in messages)
                 telefono = await _get_contact_phone(conversation_id)
@@ -5149,6 +5247,9 @@ _RESPUESTAS_SIN_DATOS = {
     "entiendo", "gracias", "hola", "hola!", "buenas", "de acuerdo", "está bien",
     "esta bien", "quiero", "me interesa", "quiero avanzar", "quiero seguir", "avancemos",
     "vamos", "vamos con ese", "si quiero", "sí quiero", "ese", "ese mismo",
+    "dame un rato", "me das un rato", "dame un momento", "esperame", "esperáme",
+    "aguantame", "aguántame", "ahora te paso", "ahora te mando", "despues te paso",
+    "después te paso", "cuando pueda te paso", "no los tengo a mano",
 }
 
 
@@ -5159,7 +5260,40 @@ def _mensaje_inicia_checklist(contenido: str) -> bool:
     texto = (contenido or "").lower()
     if any(palabra in texto for palabra in _PALABRAS_CHECKLIST_INICIADO):
         return True
-    return bool(re.search(r"(?:número|numero).{0,35}(?:portar|pasar)", texto))
+    # "el número que querés pasar, ¿en qué compañía está?" es una pregunta comercial
+    # inicial, no un pedido de datos. Exigir además un verbo de solicitud evita habilitar
+    # seguimientos en audios que el bot ni siquiera pudo escuchar (caso Bot 4, conv. 97).
+    return bool(re.search(
+        r"\b(?:pasame|mandame|decime|indicame|escribime|necesito|me falta)\b.{0,65}"
+        r"(?:número|numero).{0,35}(?:portar|pasar)",
+        texto,
+    ))
+
+
+def _adjunto_aporta_dato(message: dict) -> bool:
+    """Solo documentos/imágenes cuentan como dato; un audio ilegible no aporta información."""
+    for attachment in message.get("attachments") or []:
+        if attachment.get("file_type") == "image":
+            return True
+        if (attachment.get("file_type") == "file"
+                and (attachment.get("extension") or "").lower() == "pdf"):
+            return True
+    return False
+
+
+def _respuesta_sin_dato_real(contenido: str) -> bool:
+    normalizado = re.sub(r"[\s.,!?\u00bf¡]+", " ", (contenido or "").lower()).strip()
+    if not normalizado or normalizado in _RESPUESTAS_SIN_DATOS:
+        return True
+    return bool(re.search(
+        r"^(?:me )?(?:das|dame|banca|aguanta|espera)\w*.{0,25}(?:rato|momento|poco)?$|"
+        r"^(?:ahora|despues|más tarde|mas tarde|cuando pueda).{0,30}(?:te )?"
+        r"(?:lo |los |la |las )?(?:paso|mando|envio|doy)$|"
+        r"^(?:te )?(?:lo |los |la |las )?(?:paso|mando|envio|doy).{0,25}"
+        r"(?:despues|más tarde|mas tarde|en un rato|del trabajo)$|"
+        r"^(?:no |todavia no |aun no ).{0,35}(?:tengo|puedo|encuentro).*$",
+        normalizado,
+    ))
 
 
 def _cliente_confirmo_plan(messages: list) -> bool:
@@ -5202,7 +5336,7 @@ def _cliente_ya_paso_datos(messages: list) -> bool:
             # También cuenta el cliente que se adelantó y mandó un dato inequívoco antes de
             # que el bot se lo pidiera (por ejemplo DNI, teléfono, email o un adjunto).
             if mtype == 0:
-                if m.get("attachments"):
+                if _adjunto_aporta_dato(m):
                     return True
                 texto_cliente = contenido.lower()
                 if "@" in texto_cliente or re.search(r"\b\d{7,11}\b", texto_cliente):
@@ -5213,10 +5347,10 @@ def _cliente_ya_paso_datos(messages: list) -> bool:
                 ):
                     return True
             continue
-        if m.get("attachments"):
+        if _adjunto_aporta_dato(m):
             return True
         normalizado = re.sub(r"[\s.,!?¿¡]+", " ", contenido.lower()).strip()
-        if not normalizado or normalizado in _RESPUESTAS_SIN_DATOS:
+        if _respuesta_sin_dato_real(contenido):
             continue
         # Un número, un email, una localidad/nombre de una palabra o una respuesta más larga
         # ya cuentan como dato. Los acuses breves de recibo de arriba no.
@@ -5499,19 +5633,165 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
     logger.info(f"Conversación {conversation_id}: enviando un seguimiento automático: "
                 f"{contenido_seguimiento[:200]!r}")
     secuencia = followups_enviados + 1
-    try:
-        metadata = {
-            "data": {
-                FOLLOWUP_METADATA_KEY: {
-                    "kind": "followup",
-                    "sequence": secuencia,
-                }
+    metadata = {
+        "data": {
+            FOLLOWUP_METADATA_KEY: {
+                "kind": "followup",
+                "sequence": secuencia,
             }
         }
-        await send_message(conversation_id, contenido_seguimiento, private=False,
-                           content_attributes=metadata)
-    except Exception as e:
-        logger.error(f"Error enviando seguimiento a la conversación {conversation_id}: {e}")
+    }
+    ultimo_error_envio = None
+    for intento_envio in range(1, 4):
+        try:
+            await send_message(conversation_id, contenido_seguimiento, private=False,
+                               content_attributes=metadata)
+            return
+        except Exception as e:
+            ultimo_error_envio = e
+            logger.error(
+                f"Error enviando seguimiento a la conversación {conversation_id} "
+                f"(intento {intento_envio}/3): {e}"
+            )
+            # Un timeout puede ocurrir después de que Chatwoot guardó el mensaje. Antes de
+            # reintentar, mirar la fuente de verdad evita mandar el seguimiento dos veces.
+            try:
+                mensajes_despues = await _fetch_conversation_messages(conversation_id, minimo=1)
+            except Exception:
+                mensajes_despues = []
+            if any(
+                _followup_sequence(message) == secuencia
+                and (message.get("content") or "").strip() == contenido_seguimiento
+                for message in mensajes_despues
+            ):
+                logger.info(
+                    f"Conversación {conversation_id}: el seguimiento quedó persistido pese "
+                    f"al error de respuesta; no se duplica."
+                )
+                return
+            if intento_envio < 3:
+                await asyncio.sleep(2 * intento_envio)
+    await _avisar_fallo_respuesta(
+        conversation_id,
+        f"no se pudo enviar el seguimiento automático tras 3 intentos: {ultimo_error_envio}",
+    )
+
+
+_dni_verification_cache: dict[tuple, tuple[str, str]] = {}
+
+
+def _adjuntos_candidatos_dni(all_messages: list) -> list[dict]:
+    """Adjuntos que pueden ser DNI, solo desde que comenzó el checklist.
+
+    Excluir las imágenes comerciales anteriores evita que una captura del abono actual y otra
+    imagen cualquiera satisfagan accidentalmente la barrera. Una foto proactiva anterior se
+    admite si el cliente la acompañó con texto que identifica DNI/Mi Argentina.
+    """
+    checklist_iniciado = False
+    candidatos = []
+    for message in sorted(all_messages, key=lambda item: item.get("id") or 0):
+        if message.get("private"):
+            continue
+        if message.get("message_type") == 1:
+            if _mensaje_inicia_checklist(message.get("content") or ""):
+                checklist_iniciado = True
+            continue
+        if message.get("message_type") != 0:
+            continue
+        texto = _texto_sin_tildes(message.get("content") or "")
+        identificado_por_cliente = bool(re.search(r"\bdni\b|\bmi argentina\b", texto))
+        if not checklist_iniciado and not identificado_por_cliente:
+            continue
+        for attachment in message.get("attachments") or []:
+            es_imagen = attachment.get("file_type") == "image"
+            es_pdf = (attachment.get("file_type") == "file"
+                      and (attachment.get("extension") or "").lower() == "pdf")
+            url = attachment.get("data_url") or attachment.get("file_url")
+            if (es_imagen or es_pdf) and url:
+                candidatos.append({**attachment, "_dni_url": url, "_dni_pdf": es_pdf})
+    return candidatos[-6:]
+
+
+async def _verificar_fotos_dni(all_messages: list) -> tuple[str, str]:
+    """Verifica visualmente frente/dorso antes de permitir una derivación.
+
+    Devuelve las URLs elegidas como (frente, dorso). Para un PDF o una captura de DNI digital
+    que muestre ambas caras, devuelve la misma URL dos veces. Nunca toma la mera existencia de
+    dos adjuntos como prueba de que sean documentos.
+    """
+    candidatos = _adjuntos_candidatos_dni(all_messages)
+    clave = tuple(item["_dni_url"] for item in candidatos)
+    if not clave:
+        return "", ""
+    if clave in _dni_verification_cache:
+        return _dni_verification_cache[clave]
+
+    partes = [{
+        "type": "text",
+        "text": (
+            "Revisá los adjuntos numerados y verificá si contienen un DNI real del cliente. "
+            "Hace falta ver frente y dorso. Una captura de DNI digital o un PDF puede mostrar "
+            "ambas caras en un solo adjunto. No cuentes facturas, selfies, capturas comerciales "
+            "ni documentos donde no se distingan las caras. Respondé exactamente una sola línea: "
+            "COMPLETO FRENTE=N DORSO=M, o COMPLETO AMBAS=N, o INCOMPLETO."
+        ),
+    }]
+    for indice, attachment in enumerate(candidatos, start=1):
+        data, content_type = await download_attachment(attachment["_dni_url"])
+        if data is None:
+            continue
+        partes.append({"type": "text", "text": f"ADJUNTO {indice}:"})
+        b64 = base64.b64encode(data).decode()
+        if attachment["_dni_pdf"]:
+            partes.append({
+                "type": "file",
+                "file": {
+                    "filename": f"documento-{indice}.pdf",
+                    "file_data": f"data:application/pdf;base64,{b64}",
+                },
+            })
+        else:
+            mime = (content_type if content_type and content_type.startswith("image/")
+                    else "image/jpeg")
+            partes.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64,{b64}"},
+            })
+
+    if len(partes) == 1:
+        return "", ""
+    respuesta = (await call_openrouter([
+        {
+            "role": "system",
+            "content": (
+                "Sos un verificador de documentos. No extraigas ni repitas datos personales; "
+                "solo clasificá si se ven frente y dorso del DNI."
+            ),
+        },
+        {"role": "user", "content": partes},
+    ])).strip().upper()
+
+    ambas = re.fullmatch(r"COMPLETO\s+AMBAS\s*=\s*(\d+)", respuesta)
+    separadas = re.fullmatch(
+        r"COMPLETO\s+FRENTE\s*=\s*(\d+)\s+DORSO\s*=\s*(\d+)",
+        respuesta,
+    )
+    resultado = ("", "")
+    if ambas:
+        indice = int(ambas.group(1)) - 1
+        if 0 <= indice < len(candidatos):
+            url = candidatos[indice]["_dni_url"]
+            resultado = (url, url)
+    elif separadas:
+        frente = int(separadas.group(1)) - 1
+        dorso = int(separadas.group(2)) - 1
+        if (0 <= frente < len(candidatos) and 0 <= dorso < len(candidatos)
+                and frente != dorso):
+            resultado = (candidatos[frente]["_dni_url"], candidatos[dorso]["_dni_url"])
+    _dni_verification_cache[clave] = resultado
+    if len(_dni_verification_cache) > 1000:
+        _dni_verification_cache.pop(next(iter(_dni_verification_cache)))
+    return resultado
 
 
 def _extraer_fotos_dni(all_messages: list) -> tuple:
@@ -5594,6 +5874,9 @@ class FotosDNIIncompletasError(RuntimeError):
     """Impide por código que una derivación sin las fotos requeridas llegue a Sheets."""
 
 
+_sheets_registro_lock = asyncio.Lock()
+
+
 def _dni_escrito_por_cliente(dni: str, all_messages: list) -> bool:
     """True si los dígitos del DNI aparecen en algún mensaje de TEXTO del cliente. Caso real
     (20/09/2026, conv 952): el cliente mandó solo las fotos y nunca escribió el número, y el
@@ -5624,10 +5907,11 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
     reintentar) como para el barrido de los 5 minutos (que busca derivaciones SIN la etiqueta,
     y acá la etiqueta ya estaba). Poniendo la etiqueta al final: si el proceso muere antes de
     terminar de registrar, la conversación queda sin etiqueta y el barrido SÍ la detecta."""
-    foto_dni_frente, foto_dni_dorso = _extraer_fotos_dni(all_messages)
+    foto_dni_frente, foto_dni_dorso = await _verificar_fotos_dni(all_messages)
     if not foto_dni_frente or not foto_dni_dorso:
         raise FotosDNIIncompletasError(
-            f"Conversación {conversation_id}: derivación bloqueada porque faltan fotos del DNI"
+            f"Conversación {conversation_id}: derivación bloqueada porque no se verificaron "
+            f"frente y dorso del DNI"
         )
     if campos.get("DNI") and not _dni_escrito_por_cliente(campos["DNI"], all_messages):
         logger.warning(f"Conversación {conversation_id}: el DNI de la ficha ({campos['DNI']}) no "
@@ -5655,9 +5939,27 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
                     logger.error(f"No se pudo avisar al dueño de la ficha con línea de Claro: {e}")
         return
     fecha_nacimiento = campos.get("Fecha de nacimiento", "")
-    await log_to_google_sheets(campos, telefono, fecha_nacimiento, foto_dni_frente, foto_dni_dorso)
+    # El chequeo de duplicados y el append son dos llamadas distintas a Google. Serializarlas
+    # dentro del único worker evita que dos webhooks simultáneos lean "no existe" y agreguen
+    # la misma venta dos veces.
+    async with _sheets_registro_lock:
+        registro_ok = await log_to_google_sheets(
+            campos,
+            telefono,
+            fecha_nacimiento,
+            foto_dni_frente,
+            foto_dni_dorso,
+        )
+    if not registro_ok:
+        # Fundamental: sin excepción el flujo avisaba a Camila y agregaba `ddd` aunque Sheets
+        # hubiera fallado. Al levantarla, el bloque superior reintenta y, si no se recupera,
+        # deja la conversación sin etiqueta y avisa al responsable.
+        raise RuntimeError("la derivación no quedó registrada en Google Sheets")
     await notify_camila_carga_sheets(campos, telefono)
-    await add_conversation_label(conversation_id, DERIVADO_LABEL)
+    if not await add_conversation_label(conversation_id, DERIVADO_LABEL):
+        raise RuntimeError(
+            f"la venta quedó en Sheets pero no se pudo agregar la etiqueta {DERIVADO_LABEL!r}"
+        )
 
 
 async def process_conversation(conversation_id: int) -> None:
@@ -5777,17 +6079,24 @@ async def process_conversation(conversation_id: int) -> None:
             )
             reply = await _call_openrouter_respuesta_cliente(messages, all_messages)
 
-            # Bloqueo determinístico: aunque el modelo diga por error que vio las fotos, ningún
-            # link/ficha de derivación sale al cliente y nada llega a Sheets/ddd si Chatwoot no
-            # contiene dos imágenes distintas o un PDF. Caso real: Adán, 09/10/2026.
+            # Bloqueo previo al handoff: aunque el modelo principal diga por error que vio las
+            # fotos, un verificador visual independiente confirma que los adjuntos sean realmente
+            # frente/dorso del DNI (o un único PDF/DNI digital con ambas caras). Contar archivos
+            # solamente no alcanza: podrían ser facturas o capturas comerciales.
             intenta_derivar = (
                 "Hola Camila, quiero avanzar" in reply
                 or (NUMERO_CAMILA and NUMERO_CAMILA in reply)
             )
-            if intenta_derivar and _estado_fotos_dni(all_messages) < 2:
-                logger.warning(f"Conversación {conversation_id}: el modelo intentó derivar sin "
-                               f"las fotos completas del DNI; se reemplaza la respuesta.")
-                reply = _mensaje_fotos_dni_faltantes(all_messages)
+            if intenta_derivar:
+                foto_frente_verificada, foto_dorso_verificada = await _verificar_fotos_dni(
+                    all_messages
+                )
+                if not foto_frente_verificada or not foto_dorso_verificada:
+                    logger.warning(
+                        f"Conversación {conversation_id}: el modelo intentó derivar sin "
+                        f"frente/dorso de DNI verificados; se reemplaza la respuesta."
+                    )
+                    reply = _mensaje_fotos_dni_faltantes(all_messages)
 
             # El modelo puede marcar que el tema quedó cerrado y no corresponde programar un
             # seguimiento automático después de esta respuesta (ver NOTA TÉCNICA en el SYSTEM_PROMPT).
@@ -5875,6 +6184,23 @@ async def process_conversation(conversation_id: int) -> None:
             ultimo_error = e
             logger.error(f"Conversación {conversation_id}: fallo en el intento {intento}/3 "
                          f"generando/enviando la respuesta: {e}")
+            if isinstance(e, OpenRouterContenidoBloqueadoError):
+                # El barrido periódico volvería a mandar exactamente el mismo contenido cada
+                # cinco minutos. Pausar la automatización deja el caso para revisión humana y
+                # evita tanto el bucle como avisos repetidos.
+                try:
+                    pausa_aplicada = await add_conversation_label(conversation_id, PAUSE_LABEL)
+                    if not pausa_aplicada:
+                        logger.error(
+                            f"Conversación {conversation_id}: el contenido quedó bloqueado "
+                            f"pero no se pudo pausar automáticamente."
+                        )
+                except Exception as label_error:
+                    logger.error(
+                        f"Conversación {conversation_id}: no se pudo agregar {PAUSE_LABEL!r} "
+                        f"después del bloqueo de contenido: {label_error}"
+                    )
+                break
             if algo_enviado:
                 # Ya se alcanzó a mandar al menos una burbuja -- no reintentar desde cero acá
                 # (generaría una respuesta nueva y la mandaría de nuevo, duplicando o

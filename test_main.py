@@ -138,6 +138,9 @@ class ReglasDeNegocioTest(unittest.TestCase):
         self.assertTrue(main._tiene_razonamiento_filtrado(
             "1. Analizar el mensaje del cliente\n2. Preparar la respuesta"
         ))
+        self.assertTrue(main._tiene_razonamiento_filtrado(
+            "mandale ese mensaje y esperá.\n\n[INTERNAL_NOTE]"
+        ))
         self.assertFalse(main._tiene_razonamiento_filtrado(
             "perfecto, me falta solamente la foto del dorso"
         ))
@@ -234,6 +237,12 @@ class ReglasDeNegocioTest(unittest.TestCase):
             "somos Celtafone, agente oficial de Claro", historial
         ))
 
+    def test_responde_juntas_ubicacion_e_identidad(self):
+        historial = [_mensaje(1, 0, "¿De dónde son y quiénes son ustedes?")]
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "somos de Mar del Plata y somos agentes oficiales de Claro", historial
+        ))
+
     def test_bloquea_precio_empresa_sin_compania(self):
         historial = [_mensaje(1, 0, "la línea es de una empresa, con CUIT")]
         self.assertIn(
@@ -259,6 +268,13 @@ class ReglasDeNegocioTest(unittest.TestCase):
             "es 100% seguro",
             "es totalmente seguro",
             "es el procedimiento oficial",
+            "la foto es solo para validar los datos",
+            "como no tenés deuda eso agiliza el cambio",
+            "el roaming en Chile funciona como si estuvieras en Argentina, sin pagar extra",
+            "tus contactos nunca se pierden, siempre quedan guardados",
+            "en diciembre seguro te aumenta bastante",
+            "si la das de baja perdés el número para siempre",
+            "tus datos no se comparten con nadie más",
         ]
         for texto in casos:
             with self.subTest(texto=texto):
@@ -324,6 +340,39 @@ class ReglasDeNegocioTest(unittest.TestCase):
         last["content_attributes"] = _metadata_bot(followup_closed=True)
         self.assertFalse(main._es_candidata_followup_recuperado(conversation, ahora))
 
+    def test_no_habilita_seguimiento_por_audio_ilegible_o_pedido_de_tiempo(self):
+        solo_audio = [
+            _mensaje(1, 1, "el número que querés pasar, en qué compañía está?"),
+            _mensaje(2, 0, attachments=[{"file_type": "audio", "extension": "ogg"}]),
+            _mensaje(3, 1, "no puedo escuchar el audio, escribímelo por favor"),
+        ]
+        self.assertFalse(main._cliente_confirmo_plan(solo_audio))
+        self.assertFalse(main._cliente_ya_paso_datos(solo_audio))
+
+        pide_tiempo = [
+            _mensaje(1, 1, "pasame nombre completo, DNI y número a portar"),
+            _mensaje(2, 0, "me das un rato por favor"),
+            _mensaje(3, 1, "dale, avisame cuando los tengas"),
+        ]
+        self.assertTrue(main._cliente_confirmo_plan(pide_tiempo))
+        self.assertFalse(main._cliente_ya_paso_datos(pide_tiempo))
+
+    def test_neutraliza_formulas_en_campos_de_sheets(self):
+        self.assertEqual(main._valor_seguro_sheets("=IMPORTXML(A1)"), "'=IMPORTXML(A1)")
+        self.assertEqual(main._valor_seguro_sheets("+5492230000000"), "'+5492230000000")
+        self.assertEqual(main._valor_seguro_sheets("Mar del Plata"), "Mar del Plata")
+
+    def test_imagenes_comerciales_previas_no_cuentan_como_dni(self):
+        messages = [
+            _mensaje(1, 0, "mirá mi factura", attachments=[_imagen("factura", 10)]),
+            _mensaje(2, 1, "te paso los planes"),
+            _mensaje(3, 0, "quiero el de 4gb"),
+            _mensaje(4, 1, "pasame nombre completo, DNI y fotos frente y dorso"),
+            _mensaje(5, 0, attachments=[_imagen("dni-frente", 11)]),
+        ]
+        candidatos = main._adjuntos_candidatos_dni(messages)
+        self.assertEqual([item["_dni_url"] for item in candidatos], ["dni-frente"])
+
 
 class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
     async def test_no_duplica_el_mismo_aviso_de_falla_en_una_hora(self):
@@ -358,6 +407,21 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(respuesta, "respuesta válida")
         self.assertEqual(client.post.await_count, 2)
 
+    async def test_openrouter_no_reintenta_contenido_bloqueado(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "error": {"code": "PROHIBITED_CONTENT", "message": "blocked by safety policy"}
+        }
+        client = AsyncMock()
+        client.post.return_value = response
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        with patch.object(main.httpx, "AsyncClient", return_value=context):
+            with self.assertRaises(main.OpenRouterContenidoBloqueadoError):
+                await main.call_openrouter([{"role": "user", "content": "imagen"}], intentos=3)
+        self.assertEqual(client.post.await_count, 1)
+
     async def test_regenera_una_respuesta_comercial_incoherente(self):
         historial = [_mensaje(1, 0, "soy de Movistar")]
         with patch.object(
@@ -391,6 +455,80 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
     async def test_registro_sin_fotos_se_bloquea_antes_de_sheets(self):
         with self.assertRaises(main.FotosDNIIncompletasError):
             await main._registrar_derivacion_completa(12, {"Nombre": "Adán"}, [])
+
+    async def test_falla_de_sheets_no_avisa_a_camila_ni_etiqueta_ddd(self):
+        notify = AsyncMock()
+        label = AsyncMock()
+        with (
+            patch.object(main, "_verificar_fotos_dni",
+                         AsyncMock(return_value=("frente", "dorso"))),
+            patch.object(main, "_get_contact_phone", AsyncMock(return_value="+5492200000000")),
+            patch.object(main, "log_to_google_sheets", AsyncMock(return_value=False)),
+            patch.object(main, "notify_camila_carga_sheets", notify),
+            patch.object(main, "add_conversation_label", label),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Google Sheets"):
+                await main._registrar_derivacion_completa(
+                    12,
+                    {"Nombre": "Prueba", "Compañía actual": "Movistar"},
+                    [],
+                )
+        notify.assert_not_awaited()
+        label.assert_not_awaited()
+
+    async def test_verifica_dos_caras_y_acepta_dni_digital_en_un_adjunto(self):
+        mensajes_dos = [
+            _mensaje(1, 1, "pasame foto del frente y dorso del DNI"),
+            _mensaje(2, 0, attachments=[
+                _imagen("dni-frente-unico", 101),
+                _imagen("dni-dorso-unico", 102),
+            ]),
+        ]
+        main._dni_verification_cache.clear()
+        with (
+            patch.object(main, "download_attachment",
+                         AsyncMock(return_value=(b"imagen", "image/jpeg"))),
+            patch.object(main, "call_openrouter",
+                         AsyncMock(return_value="COMPLETO FRENTE=1 DORSO=2")),
+        ):
+            self.assertEqual(
+                await main._verificar_fotos_dni(mensajes_dos),
+                ("dni-frente-unico", "dni-dorso-unico"),
+            )
+
+        mensajes_digital = [
+            _mensaje(1, 1, "pasame una foto del DNI"),
+            _mensaje(2, 0, "DNI digital de Mi Argentina",
+                     attachments=[_imagen("dni-digital-ambas", 103)]),
+        ]
+        main._dni_verification_cache.clear()
+        with (
+            patch.object(main, "download_attachment",
+                         AsyncMock(return_value=(b"imagen", "image/jpeg"))),
+            patch.object(main, "call_openrouter", AsyncMock(return_value="COMPLETO AMBAS=1")),
+        ):
+            self.assertEqual(
+                await main._verificar_fotos_dni(mensajes_digital),
+                ("dni-digital-ambas", "dni-digital-ambas"),
+            )
+
+    async def test_build_message_content_entrega_todos_los_adjuntos_al_modelo(self):
+        mensaje = _mensaje(1, 0, "frente y dorso", attachments=[
+            _imagen("frente-lote", 201),
+            _imagen("dorso-lote", 202),
+        ])
+        with patch.object(
+            main,
+            "build_image_content",
+            AsyncMock(side_effect=[
+                [{"type": "image_url", "image_url": {"url": "frente"}}],
+                [{"type": "image_url", "image_url": {"url": "dorso"}}],
+            ]),
+        ) as build:
+            contenido, tipo = await main.build_message_content(mensaje)
+        self.assertEqual(build.await_count, 2)
+        self.assertEqual(tipo, "documents")
+        self.assertEqual(len(contenido), 2)
 
     async def test_no_encadena_seguimiento_sobre_otro_seguimiento(self):
         messages = [
@@ -548,6 +686,28 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             await main.send_followup_if_needed(10, 2700)
         send.assert_awaited_once()
         self.assertEqual(send.await_args.args[1], "me pasás la calle?\n\ny la altura?")
+
+    async def test_reintenta_envio_de_seguimiento_sin_duplicar(self):
+        messages = [
+            _mensaje(1, 1, "pasame tu localidad", metadata=_metadata_bot()),
+            _mensaje(2, 0, "Rosario"),
+            _mensaje(3, 1, "me falta la dirección", metadata=_metadata_bot()),
+        ]
+        send = AsyncMock(side_effect=[RuntimeError("timeout"), None])
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
+            patch.object(main, "_fetch_conversation_messages",
+                         AsyncMock(return_value=messages)),
+            patch.object(main, "call_openrouter",
+                         AsyncMock(return_value="me pasás la dirección?")),
+            patch.object(main, "send_message", send),
+            patch.object(main.asyncio, "sleep", AsyncMock()),
+            patch.object(main, "_avisar_fallo_respuesta", AsyncMock()) as aviso,
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        self.assertEqual(send.await_count, 2)
+        aviso.assert_not_awaited()
 
     async def test_no_permite_derivar_desde_un_seguimiento(self):
         messages = [

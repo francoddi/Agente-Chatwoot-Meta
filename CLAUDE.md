@@ -137,10 +137,8 @@ internamente, pero los sistemas de SMS genéricos de Meta no, y lo mandan mal si
   Ortiga → en realidad Margarita de la Cruz Alvarez).
 - **Contenido bloqueado por el modelo**: si un cliente manda una imagen que Gemini bloquea
   (PROHIBITED_CONTENT, OpenRouter devuelve 200 con "error" y sin "choices"), `call_openrouter`
-  falla, reintenta y el barrido la reintenta cada 5 min avisando al dueño cada vez. Pasó con
-  material ilegal (abuso infantil): se puso `bot_off`, se bloqueó el contacto y se eliminó la
-  conversación a pedido de Francisco. PENDIENTE: que el código no reintente ese tipo de error
-  y avise una sola vez como "contenido bloqueado", no como falla técnica.
+  lo detecta sin repetir la misma llamada, pausa la conversación con `bot_off` y avisa al dueño
+  una sola vez para revisión humana. Corregido el 09/10/2026.
 - **Análisis de conversión (02-03/10)**: Bot 1 y Bot 2 tienen el mismo % de gente que contesta
   el saludo (~75%); Bot 1 lleva más gente a ver precios pero deriva menos. Llegan de anuncios
   distintos (Bot 1: "Quiero pasarme a Claro manteniendo mi número 😀", público Movistar muy
