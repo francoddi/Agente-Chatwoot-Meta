@@ -2553,7 +2553,7 @@ o:
 58. SEGUIMIENTO AUTOMÁTICO — SOLO EL QUE TE PIDE EL SISTEMA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-El sistema puede pedirte automáticamente UN mensaje de seguimiento si el cliente no responde por un rato (ver la NOTA TÉCNICA sobre seguimiento automático, al final de este documento). Ese es el único tipo de seguimiento que existe.
+El sistema puede pedirte automáticamente UN mensaje de seguimiento si el cliente no responde por un rato (ver la NOTA TÉCNICA sobre seguimiento automático, al final de este documento). Puede hacerlo como máximo dos veces en toda la conversación y nunca de manera consecutiva: el cliente tiene que responder al primero para que alguna vez corresponda un segundo. Ese es el único tipo de seguimiento que existe.
 
 Vos NO decidís por tu cuenta cuándo mandar un seguimiento — eso lo dispara el sistema. Vos solo redactás el contenido cuando te lo pide, usando el contexto real de la charla, y podés marcar que el tema quedó cerrado con [FIN_SEGUIMIENTO] cuando corresponda.
 
@@ -2935,11 +2935,10 @@ No abuses de este separador: usalo solo cuando de verdad sea más natural partir
 NOTA TÉCNICA — SEGUIMIENTO AUTOMÁTICO SI EL CLIENTE NO RESPONDE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Si el cliente no responde por un rato, el sistema te va a pedir automáticamente (con un mensaje interno) que le mandes UN seguimiento corto, usando contexto real de en qué había quedado la charla. Por ejemplo:
+Si el cliente ya pasó datos y después no responde por un rato, el sistema te va a pedir automáticamente (con un mensaje interno) que le mandes UN seguimiento corto, usando contexto real de en qué había quedado la charla. El sistema limita esto a dos seguimientos por conversación y no permite dos seguidos. Por ejemplo:
 
 - si le mostraste planes y no contestó: preguntale qué le parecieron.
 - si le pediste un dato (nombre, dirección, etc.) y no contestó: pedíselo de nuevo, con otras palabras.
-- si ya lo derivaste a Camila: preguntale si pudo hablar con ella.
 
 No repitas literalmente tu mensaje anterior. No seas insistente ni pesada.
 
@@ -3015,21 +3014,16 @@ def _espera_antes_de_responder(texto_visible: str) -> float:
              else RESPUESTA_ESPERA_CORTA)
     return random.uniform(*rango)
 
-# Seguimiento automático: si el cliente no responde después de este tiempo desde la última
-# respuesta del bot, se le manda UN mensaje de seguimiento con contexto (ver NOTA TÉCNICA en el
-# SYSTEM_PROMPT). La espera se elige al azar entre estos dos valores (en segundos) cada vez que
-# se programa, para que no sea siempre exactamente el mismo tiempo. El bot puede marcar una
-# respuesta como "tema cerrado" para que no se programe seguimiento después de ella.
-#
-# DESACTIVADO DE NUEVO (23/09/2026, a pedido explícito y urgente): se bloquearon LOS DOS números
-# de WhatsApp Business. Había estado reactivado el 18/09 con un alcance más acotado
-# (_cliente_confirmo_plan, solo a leads de intención real ya confirmada), pero ante un segundo
-# bloqueo se corta este mensaje automático por completo hasta nueva orden explícita. Poner
-# FOLLOWUP_ENABLED=true para reactivarlo cuando se decida.
-FOLLOWUP_ENABLED = os.getenv("FOLLOWUP_ENABLED", "false").lower() == "true"
+# Seguimiento automático: solo para clientes que ya empezaron a pasar datos. Se permiten como
+# máximo dos en toda la conversación y nunca se encadenan: para llegar al segundo, el cliente
+# tiene que haber respondido al primero y luego volver a quedar en silencio. El contador queda
+# guardado en los metadatos de los mensajes de Chatwoot, así sobrevive a un redeploy.
+FOLLOWUP_ENABLED = os.getenv("FOLLOWUP_ENABLED", "true").lower() == "true"
 FOLLOWUP_DELAY_MIN_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MIN_SECONDS", "2700"))  # 45 min
 FOLLOWUP_DELAY_MAX_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MAX_SECONDS", "3600"))  # 60 min
+FOLLOWUP_MAX_PER_CONVERSATION = int(os.getenv("FOLLOWUP_MAX_PER_CONVERSATION", "2"))
 FOLLOWUP_CLOSE_MARKER = "[FIN_SEGUIMIENTO]"
+FOLLOWUP_METADATA_KEY = "agente_chatwoot_meta"
 
 # Corrección de un dato después de derivar (ver sección 49.2 del SYSTEM_PROMPT): si el cliente
 # avisa un error en un dato DESPUÉS de que ya se generó la ficha (la fila ya existe en Sheets),
@@ -4091,13 +4085,16 @@ def _map_history(messages: list) -> list:
     return history
 
 
-async def send_message(conversation_id, content: str, private: bool = False):
+async def send_message(conversation_id, content: str, private: bool = False,
+                       content_attributes: dict | None = None):
     """Crea un mensaje en Chatwoot. Si private=False (default), Chatwoot lo entrega por
     WhatsApp normalmente. Si private=True, queda como nota interna SOLO visible en Chatwoot —
     no le llega nada al cliente por WhatsApp (ya no se usa para la ficha de datos, que
     directamente no se manda más -- ver el comentario en process_conversation)."""
     url = f"{_chatwoot_base(conversation_id)}/messages"
     body = {"content": content, "message_type": "outgoing", "private": private}
+    if content_attributes:
+        body["content_attributes"] = content_attributes
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             resp = await client.post(url, headers=_chatwoot_headers(), json=body)
@@ -4324,6 +4321,18 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     t = (texto or "").strip().lower()
     if "silently thinking" in t or t.startswith("silently"):
         return True
+    # Caso real (09/10/2026): Gemini devolvió un bloque que empezaba con
+    # "**Validating Current Status**" y siguió narrando en inglés cómo evaluaba la charla.
+    # Los encabezados/muletillas siguientes son propios del razonamiento, no una respuesta
+    # comercial en español para el cliente.
+    inicio_sin_markdown = t.lstrip("*_#` >\n\t")
+    if inicio_sin_markdown.startswith((
+        "validating current status", "analyzing", "analysis", "reasoning",
+        "thinking through", "reviewing the conversation", "assessing the situation",
+        "we need to ", "i need to ", "the user has ", "the user is ",
+        "identify the core misunderstanding",
+    )):
+        return True
     return any(p in t for p in _PATRONES_META_SIN_RESPUESTA)
 
 
@@ -4384,6 +4393,11 @@ _pending_tasks: dict = {}
 
 
 def schedule_conversation_processing(conversation_id: int) -> None:
+    # El cliente respondió: el silencio anterior terminó. Cancelar el reloj inmediatamente,
+    # antes de generar la nueva respuesta, evita que el seguimiento viejo venza justo mientras
+    # el bot está contestando y salga pegado a esa respuesta.
+    cancel_followup_check(conversation_id)
+
     existing = _pending_tasks.get(conversation_id)
     if existing and not existing.done():
         existing.cancel()
@@ -4581,17 +4595,11 @@ async def _recuperacion_ventas_loop() -> None:
 
 def _es_candidata_a_recuperar(messages: list) -> bool:
     """Filtro barato (sin llamar al modelo): el bot ya pidió datos del checklist y el cliente
-    mandó al menos una foto o PDF -- las fotos del DNI se piden al final, así que sin ellas
-    seguro falta algo."""
+    mandó dos imágenes distintas o un PDF -- las fotos del DNI se piden al final, así que sin
+    el documento completo seguro falta algo."""
     if not _cliente_confirmo_plan(messages):
         return False
-    return any(
-        m.get("message_type") == 0 and not m.get("private")
-        and any(a.get("file_type") == "image"
-                or (a.get("file_type") == "file" and (a.get("extension") or "").lower() == "pdf")
-                for a in (m.get("attachments") or []))
-        for m in messages
-    )
+    return _estado_fotos_dni(messages) == 2
 
 
 async def _revisar_conversacion_para_recuperar(conversation_id: int, messages: list):
@@ -4683,18 +4691,18 @@ async def _revisar_ventas_trabadas() -> None:
 
 
 # --------------------------------------------------------------------------------------
-# Seguimiento automático: si el cliente no responde en FOLLOWUP_DELAY_SECONDS desde la última
-# respuesta del bot, se le manda UN mensaje de seguimiento con contexto real de la charla (ver
-# NOTA TÉCNICA en el SYSTEM_PROMPT). Mismo esquema y misma limitación que el debounce: el
-# seguimiento programado vive en memoria y se pierde si el proceso se reinicia mientras espera.
+# Seguimiento automático: si un cliente que ya pasó datos no responde en el plazo configurado,
+# se le manda un mensaje con contexto real. Máximo dos por conversación, nunca consecutivos.
+# El reloj pendiente vive en memoria y se pierde si el proceso se reinicia mientras espera; el
+# contador de los ya enviados vive en metadatos de Chatwoot y sí sobrevive al reinicio.
 # --------------------------------------------------------------------------------------
 _pending_followups: dict = {}
 
 # Palabras que solo aparecen en mensajes del bot DESPUÉS de que el cliente ya eligió un plan y
 # confirmó que quiere avanzar (sección 39 del SYSTEM_PROMPT prohíbe explícitamente pedir estos
 # datos ANTES de esa confirmación -- "nombre completo, dirección, localidad, provincia, CUIT,
-# documentación" recién se piden después de OFERTA → DECISIÓN). Se usan como filtro de intención
-# para el seguimiento automático, ver _cliente_confirmo_plan().
+# documentación" recién se piden después de OFERTA → DECISIÓN). Se usan para detectar el
+# inicio del checklist en _cliente_confirmo_plan() y _cliente_ya_paso_datos().
 #
 # OJO: el modelo redacta estos pedidos con sus propias palabras cada vez (sección 43, "podés usar
 # uno o varios mensajes"), no copia frases fijas -- por eso se usan palabras sueltas y distintivas
@@ -4705,6 +4713,12 @@ _PALABRAS_CHECKLIST_INICIADO = (
     "localidad", "provincia", "código postal", "codigo postal",
     "dirección", "direccion", "dorso", "nombre completo", "portar",
 )
+
+_RESPUESTAS_SIN_DATOS = {
+    "si", "sí", "ok", "oki", "okay", "dale", "bueno", "joya", "perfecto", "listo",
+    "entiendo", "gracias", "hola", "hola!", "buenas", "de acuerdo", "está bien",
+    "esta bien", "quiero", "me interesa", "quiero avanzar",
+}
 
 
 def _cliente_confirmo_plan(messages: list) -> bool:
@@ -4725,6 +4739,58 @@ def _cliente_confirmo_plan(messages: list) -> bool:
         if any(palabra in contenido for palabra in _PALABRAS_CHECKLIST_INICIADO):
             return True
     return False
+
+
+def _cliente_ya_paso_datos(messages: list) -> bool:
+    """True cuando el cliente aportó al menos un dato después de que el bot inició el
+    checklist. No alcanza con que el bot haya pedido datos: tiene que existir una respuesta
+    sustantiva del cliente (texto, número, email o adjunto) posterior a ese pedido."""
+    checklist_iniciado = False
+    for m in sorted(messages, key=lambda item: item.get("id") or 0):
+        if m.get("private"):
+            continue
+        mtype = m.get("message_type")
+        contenido = (m.get("content") or "").strip()
+        if mtype == 1:
+            texto_bot = contenido.lower()
+            if ("hola camila, quiero avanzar" in texto_bot
+                    or any(palabra in texto_bot for palabra in _PALABRAS_CHECKLIST_INICIADO)):
+                checklist_iniciado = True
+            continue
+        if mtype != 0 or not checklist_iniciado:
+            continue
+        if m.get("attachments"):
+            return True
+        normalizado = re.sub(r"[\s.,!?¿¡]+", " ", contenido.lower()).strip()
+        if not normalizado or normalizado in _RESPUESTAS_SIN_DATOS:
+            continue
+        # Un número, un email, una localidad/nombre de una palabra o una respuesta más larga
+        # ya cuentan como dato. Los acuses breves de recibo de arriba no.
+        if re.search(r"\d{4,}", normalizado) or "@" in normalizado:
+            return True
+        if len(normalizado) >= 3:
+            return True
+    return False
+
+
+def _followup_sequence(message: dict) -> int | None:
+    data = (message.get("content_attributes") or {}).get("data") or {}
+    marker = data.get(FOLLOWUP_METADATA_KEY) or {}
+    if marker.get("kind") != "followup":
+        return None
+    try:
+        return int(marker.get("sequence"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _followups_enviados(messages: list) -> int:
+    """Cuenta seguimientos persistidos en Chatwoot, sin depender de la memoria del proceso."""
+    secuencias = {
+        secuencia for m in messages
+        if (secuencia := _followup_sequence(m)) is not None
+    }
+    return len(secuencias)
 
 
 def schedule_followup_check(conversation_id: int) -> None:
@@ -4779,7 +4845,9 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
                     f"seguimiento automático.")
         return
 
-    all_messages = await _fetch_conversation_messages(conversation_id)
+    # Para contar los seguimientos persistidos se trae el historial más profundo permitido por
+    # el paginador, no solo la ventana que se manda al modelo.
+    all_messages = await _fetch_conversation_messages(conversation_id, minimo=10_000)
     if not all_messages:
         logger.error(f"No se pudo chequear si corresponde seguimiento en la conversación {conversation_id}.")
         return
@@ -4795,11 +4863,24 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         # (webhook + debounce) ya se encarga, no hace falta seguimiento.
         return
 
-    if not _cliente_confirmo_plan(all_messages):
+    if _followup_sequence(ultimo) is not None:
+        # Defensa explícita contra dos seguimientos seguidos. Normalmente no se llega acá
+        # porque un seguimiento no programa otro, pero este chequeo también cubre reinicios y
+        # llamadas manuales accidentales.
+        logger.info(f"Conversación {conversation_id}: el último mensaje ya era un seguimiento; "
+                    f"no se encadena otro.")
+        return
+
+    followups_enviados = _followups_enviados(all_messages)
+    if followups_enviados >= FOLLOWUP_MAX_PER_CONVERSATION:
+        logger.info(f"Conversación {conversation_id}: ya recibió {followups_enviados} "
+                    f"seguimientos; alcanzó el máximo de {FOLLOWUP_MAX_PER_CONVERSATION}.")
+        return
+
+    if not _cliente_ya_paso_datos(all_messages):
         logger.info(
             f"Conversación {conversation_id}: sin seguimiento automático -- el cliente todavía "
-            f"no confirmó un plan (baja intención), se saltea para no mandar mensajes "
-            f"automáticos de más."
+            f"no pasó ningún dato después de iniciar el checklist."
         )
         return
 
@@ -4841,13 +4922,25 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
     logger.info(f"Conversación {conversation_id}: enviando seguimiento automático en "
                 f"{len(bubbles)} burbuja(s): {reply[:200]!r}")
 
+    secuencia = followups_enviados + 1
     for bubble in bubbles:
         # Mismo criterio que en process_conversation: la ficha no se manda para nada, ni al
         # cliente ni como nota interna (ver el comentario largo ahí).
         if "Hola Camila, quiero avanzar" in bubble:
             continue
         try:
-            await send_message(conversation_id, bubble, private=False)
+            # Todas las burbujas llevan la misma secuencia. El conteo usa secuencias únicas,
+            # por lo que siguen siendo UN solo seguimiento, y la última burbuja también queda
+            # marcada para impedir que otro seguimiento se encadene sin respuesta del cliente.
+            metadata = {
+                "data": {
+                    FOLLOWUP_METADATA_KEY: {
+                        "kind": "followup",
+                        "sequence": secuencia,
+                    }
+                }
+            }
+            await send_message(conversation_id, bubble, private=False, content_attributes=metadata)
         except Exception as e:
             logger.error(f"Error enviando seguimiento a la conversación {conversation_id}: {e}")
             break
@@ -4907,6 +5000,32 @@ def _extraer_fotos_dni(all_messages: list) -> tuple:
     return imagenes[-2], imagenes[-1]
 
 
+def _estado_fotos_dni(all_messages: list) -> int:
+    """0 = ninguna; 1 = una sola cara; 2 = dos imágenes distintas o un PDF."""
+    frente, dorso = _extraer_fotos_dni(all_messages)
+    if frente and dorso:
+        return 2
+    if frente or dorso:
+        return 1
+    return 0
+
+
+def _mensaje_fotos_dni_faltantes(all_messages: list) -> str:
+    if _estado_fotos_dni(all_messages) == 1:
+        return (
+            "me llegó una sola foto del DNI. me falta la otra cara para poder pasar tus "
+            "datos, mandámela porfa 🙏"
+        )
+    return (
+        "antes de pasarte con Camila necesito que me mandes las fotos del DNI: una del frente "
+        "y otra del dorso, porfa 🙏"
+    )
+
+
+class FotosDNIIncompletasError(RuntimeError):
+    """Impide por código que una derivación sin las fotos requeridas llegue a Sheets."""
+
+
 def _dni_escrito_por_cliente(dni: str, all_messages: list) -> bool:
     """True si los dígitos del DNI aparecen en algún mensaje de TEXTO del cliente. Caso real
     (20/09/2026, conv 952): el cliente mandó solo las fotos y nunca escribió el número, y el
@@ -4937,6 +5056,11 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
     reintentar) como para el barrido de los 5 minutos (que busca derivaciones SIN la etiqueta,
     y acá la etiqueta ya estaba). Poniendo la etiqueta al final: si el proceso muere antes de
     terminar de registrar, la conversación queda sin etiqueta y el barrido SÍ la detecta."""
+    foto_dni_frente, foto_dni_dorso = _extraer_fotos_dni(all_messages)
+    if not foto_dni_frente or not foto_dni_dorso:
+        raise FotosDNIIncompletasError(
+            f"Conversación {conversation_id}: derivación bloqueada porque faltan fotos del DNI"
+        )
     if campos.get("DNI") and not _dni_escrito_por_cliente(campos["DNI"], all_messages):
         logger.warning(f"Conversación {conversation_id}: el DNI de la ficha ({campos['DNI']}) no "
                        f"lo escribió el cliente -- se deja en blanco para que lo complete el equipo.")
@@ -4963,7 +5087,6 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
                     logger.error(f"No se pudo avisar al dueño de la ficha con línea de Claro: {e}")
         return
     fecha_nacimiento = campos.get("Fecha de nacimiento", "")
-    foto_dni_frente, foto_dni_dorso = _extraer_fotos_dni(all_messages)
     await log_to_google_sheets(campos, telefono, fecha_nacimiento, foto_dni_frente, foto_dni_dorso)
     await notify_camila_carga_sheets(campos, telefono)
     await add_conversation_label(conversation_id, DERIVADO_LABEL)
@@ -5075,6 +5198,18 @@ async def process_conversation(conversation_id: int) -> None:
                 + batch_turns
             )
             reply = await call_openrouter(messages)
+
+            # Bloqueo determinístico: aunque el modelo diga por error que vio las fotos, ningún
+            # link/ficha de derivación sale al cliente y nada llega a Sheets/ddd si Chatwoot no
+            # contiene dos imágenes distintas o un PDF. Caso real: Adán, 09/10/2026.
+            intenta_derivar = (
+                "Hola Camila, quiero avanzar" in reply
+                or (NUMERO_CAMILA and NUMERO_CAMILA in reply)
+            )
+            if intenta_derivar and _estado_fotos_dni(all_messages) < 2:
+                logger.warning(f"Conversación {conversation_id}: el modelo intentó derivar sin "
+                               f"las fotos completas del DNI; se reemplaza la respuesta.")
+                reply = _mensaje_fotos_dni_faltantes(all_messages)
 
             # El modelo puede marcar que el tema quedó cerrado y no corresponde programar un
             # seguimiento automático después de esta respuesta (ver NOTA TÉCNICA en el SYSTEM_PROMPT).
