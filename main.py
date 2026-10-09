@@ -3700,6 +3700,10 @@ async def _avisar_error_sheets(row: list) -> None:
         logger.error(f"No se pudo avisar del error de Sheets: {e}")
 
 
+_fallos_respuesta_avisados: dict[tuple, float] = {}
+FALLO_RESPUESTA_AVISO_TTL_SEGUNDOS = 3600
+
+
 async def _avisar_fallo_respuesta(conversation_id, detalle: str) -> None:
     """Le avisa al dueño por WhatsApp que un cliente se quedó sin respuesta después de agotar
     los reintentos (ver process_conversation), para que un humano pueda intervenir a tiempo --
@@ -3710,6 +3714,23 @@ async def _avisar_fallo_respuesta(conversation_id, detalle: str) -> None:
     responda de verdad."""
     if not NUMERO_DUENO:
         return
+
+    # El mismo cliente puede escribir de nuevo mientras el primer procesamiento todavía está
+    # agotando reintentos. Eso dispara una segunda tarea legítima, pero no justifica mandar dos
+    # alertas idénticas al dueño con pocos minutos de diferencia (caso real: conv 80, 09/10/2026).
+    # La clave incluye el detalle: una falla distinta en la misma conversación sí se avisa.
+    ahora = time.time()
+    for clave_vieja, momento in list(_fallos_respuesta_avisados.items()):
+        if ahora - momento >= FALLO_RESPUESTA_AVISO_TTL_SEGUNDOS:
+            _fallos_respuesta_avisados.pop(clave_vieja, None)
+    clave_aviso = (conversation_id, detalle)
+    if ahora - _fallos_respuesta_avisados.get(clave_aviso, 0) < FALLO_RESPUESTA_AVISO_TTL_SEGUNDOS:
+        logger.info(f"Conversación {conversation_id}: aviso de falla idéntico ya enviado; "
+                    f"no se duplica.")
+        return
+    # Reservar antes del primer await también evita duplicados entre tareas concurrentes.
+    _fallos_respuesta_avisados[clave_aviso] = ahora
+
     telefono_cliente = await _get_contact_phone(conversation_id)
     mensaje = (
         f"⚠️ Un cliente se quedó sin respuesta del bot después de varios intentos.\n"
@@ -3720,10 +3741,12 @@ async def _avisar_fallo_respuesta(conversation_id, detalle: str) -> None:
     )
     conv_id = await _find_conversation_by_phone(NUMERO_DUENO)
     if not conv_id:
+        _fallos_respuesta_avisados.pop(clave_aviso, None)
         return
     try:
         await send_message(conv_id, mensaje)
     except Exception as e:
+        _fallos_respuesta_avisados.pop(clave_aviso, None)
         logger.error(f"No se pudo avisar del fallo de respuesta: {e}")
 
 
@@ -4599,7 +4622,10 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
         (r"\b(?:podes|podras|se puede|te pueden|te dejan|vas a poder)\b.{0,45}(?:cambi\w*|eleg\w*|modific\w*|mov\w*|acomod\w*).{0,35}(?:fecha de vencimiento|vencimiento|fecha de pago)", "prometió que se puede cambiar la fecha de vencimiento"),
         (r"\b(?:no (?:es|somos|se trata de)(?: una| ninguna)? estafa|no te estan estafando)\b", "garantizó que no es una estafa"),
         (r"(?:100\s*%|cien por ciento|totalmente|completamente|absolutamente).{0,30}segur", "dio una garantía absoluta de seguridad"),
-        (r"\b(?:procedimiento|tramite|proceso|agentes?|distribuidores?)\s+oficial(?:es)?\b|\bsomos\s+oficiales\b", "presentó el procedimiento como oficial sin poder verificarlo"),
+        # La identidad autorizada "Celtafone, agente oficial de Claro" SÍ es válida cuando el
+        # cliente pregunta quiénes somos (sección 1). Lo inseguro es presentar el trámite o el
+        # procedimiento entero como "oficial" para disipar una sospecha de estafa.
+        (r"\b(?:procedimiento|tramite|proceso)\s+oficial\b", "presentó el procedimiento como oficial sin poder verificarlo"),
     )
     for patron, motivo in patrones_no_autorizados:
         if re.search(patron, texto, flags=re.DOTALL):

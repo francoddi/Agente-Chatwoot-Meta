@@ -231,7 +231,6 @@ class ReglasDeNegocioTest(unittest.TestCase):
             "es 100% seguro",
             "es totalmente seguro",
             "es el procedimiento oficial",
-            "somos agentes oficiales",
         ]
         for texto in casos:
             with self.subTest(texto=texto):
@@ -239,6 +238,8 @@ class ReglasDeNegocioTest(unittest.TestCase):
         respuestas_seguras = [
             "no puedo confirmarte si se puede cambiar el vencimiento",
             "podés verificarlo por los medios oficiales de Claro antes de seguir",
+            "trabajamos con Celtafone, agente oficial de Claro",
+            "somos agentes oficiales de Claro",
             "los aumentos futuros los define la compañía y no puedo anticipar una fecha",
         ]
         for texto in respuestas_seguras:
@@ -266,6 +267,20 @@ class ReglasDeNegocioTest(unittest.TestCase):
 
 
 class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
+    async def test_no_duplica_el_mismo_aviso_de_falla_en_una_hora(self):
+        main._fallos_respuesta_avisados.clear()
+        send = AsyncMock()
+        with (
+            patch.object(main, "NUMERO_DUENO", "+5490000000000"),
+            patch.object(main, "_get_contact_phone", AsyncMock(return_value="+5491111111111")),
+            patch.object(main, "_find_conversation_by_phone", AsyncMock(return_value=99)),
+            patch.object(main, "send_message", send),
+        ):
+            await main._avisar_fallo_respuesta(80, "mismo error")
+            await main._avisar_fallo_respuesta(80, "mismo error")
+        send.assert_awaited_once()
+        main._fallos_respuesta_avisados.clear()
+
     async def test_openrouter_reintenta_si_devuelve_solo_espacios(self):
         response = MagicMock()
         response.status_code = 200
