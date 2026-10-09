@@ -4397,7 +4397,8 @@ _PATRONES_META_SIN_RESPUESTA = (
 
 _INICIOS_RAZONAMIENTO_INTERNO_ES = (
     "analizando la conversacion", "analisis de la conversacion",
-    "analisis del mensaje", "evaluando el estado actual", "evaluando la situacion",
+    "analizar la conversacion", "analisis del mensaje", "analizar el mensaje",
+    "evaluando el estado actual", "evaluando la situacion",
     "razonamiento", "plan de respuesta", "debo responder", "necesito responder",
     "el usuario dijo", "el usuario ha ", "el cliente dijo", "el cliente ha ",
     "identificar el problema", "identificar la intencion", "primero debo ",
@@ -4477,6 +4478,7 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     # Los encabezados/muletillas siguientes son propios del razonamiento, no una respuesta
     # comercial en español para el cliente.
     inicio_sin_markdown = t.lstrip("*_#` >\n\t")
+    inicio_sin_markdown = re.sub(r"^(?:\d+[.)\-:]\s*)+", "", inicio_sin_markdown)
     inicio_sin_tildes = _texto_sin_tildes(inicio_sin_markdown)
     if any(marca in t for marca in ("<analysis", "</analysis>", "<thinking", "</thinking>")):
         return True
@@ -4515,6 +4517,31 @@ def _companias_informadas_por_cliente(messages: list) -> set:
     return encontradas
 
 
+def _mensajes_entrantes_pendientes(messages: list) -> list:
+    """Mensajes del cliente posteriores a la última salida pública del bot/agente."""
+    ordenados = sorted(messages, key=lambda m: m.get("id") or 0)
+    ultimo_saliente = -1
+    for indice, message in enumerate(ordenados):
+        if message.get("message_type") == 1 and not message.get("private"):
+            ultimo_saliente = indice
+    return [
+        m for m in ordenados[ultimo_saliente + 1:]
+        if m.get("message_type") == 0 and not m.get("private")
+    ]
+
+
+def _hay_contexto_de_otra_linea(messages: list) -> bool:
+    """Evita confundir la compañía ya conocida de una línea con una segunda línea nueva."""
+    visibles = [m for m in sorted(messages, key=lambda m: m.get("id") or 0) if not m.get("private")]
+    texto_reciente = " ".join(_texto_sin_tildes(m.get("content") or "") for m in visibles[-8:])
+    return bool(re.search(
+        r"\b(?:otra|segunda|tercera|nueva)\s+linea\b|"
+        r"\b(?:dos|tres|2|3)\s+lineas\b|"
+        r"\b(?:sumar|agregar|anadir|portar|pasar).{0,25}(?:otra|segunda|mas)\s+linea\b",
+        texto_reciente,
+    ))
+
+
 def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
     """Valida errores comerciales graves antes de que una respuesta llegue a WhatsApp.
 
@@ -4525,11 +4552,19 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
     companias = _companias_informadas_por_cliente(messages)
 
     pregunta_compania = re.search(
-        r"\b(?:de|en)\s+que\s+(?:compania|empresa)\b|"
-        r"\bque\s+(?:compania|empresa)\s+(?:tenes|usas|es|esta)\b",
+        r"\b(?:de|en|con)\s+(?:que|cual)\s+(?:compania|empresa)\b|"
+        r"\b(?:que|cual)\s+(?:es\s+)?(?:tu\s+)?(?:compania|empresa)\b|"
+        r"\b(?:tu\s+)?linea.{0,20}(?:de|en)\s+(?:que|cual)\s+(?:compania|empresa)\b|"
+        r"\b(?:sos|venis).{0,20}\bmovistar\b.{0,20}\bpersonal\b.{0,20}\btuenti\b",
         texto,
     )
-    if companias and pregunta_compania:
+    afirma_que_ya_la_sabe = re.search(
+        r"\b(?:ya (?:se|me dijiste)|como ya (?:se|me dijiste)|veo que)\b.{0,45}"
+        r"(?:compania|empresa|movistar|tuenti|personal)",
+        texto,
+    )
+    if (companias and pregunta_compania and not afirma_que_ya_la_sabe
+            and not _hay_contexto_de_otra_linea(messages)):
         return f"volvió a preguntar la compañía aunque el cliente ya informó: {', '.join(sorted(companias))}"
 
     cliente_dijo_empresa = any(
@@ -4537,18 +4572,45 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
         for m in messages
         if m.get("message_type") == 0 and not m.get("private")
     )
-    if cliente_dijo_empresa and not companias and re.search(r"\$\s*\d", respuesta or ""):
+    menciona_precio_concreto = re.search(
+        r"\$\s*\d|\b(?:precio|abono|plan).{0,45}\d{1,3}[.\s]\d{3}\b|"
+        r"\b\d{1,3}[.\s]\d{3}\s*(?:pesos|por mes)",
+        texto,
+    )
+    if cliente_dijo_empresa and not companias and menciona_precio_concreto:
         return "dio un precio de Empresa antes de conocer la compañía de origen"
+
+    emails_invalidos_pendientes = []
+    for message in _mensajes_entrantes_pendientes(messages):
+        candidatos = re.findall(r"[^\s<>]+@[^\s<>]+", message.get("content") or "")
+        emails_invalidos_pendientes.extend(
+            email for email in candidatos if not _normalizar_email_ficha(email)
+        )
+    acepta_email = re.search(
+        r"\blo anoto\b|\bya lo anote\b|\bemail (?:anotado|listo|perfecto)\b|"
+        r"\bcorreo (?:anotado|listo|perfecto)\b",
+        texto,
+    )
+    if emails_invalidos_pendientes and acepta_email:
+        return "aceptó como válido un email con formato inválido"
 
     patrones_no_autorizados = (
         (r"aument\w*.{0,45}regul\w*.{0,25}gobierno|gobierno.{0,45}regul\w*.{0,25}aument", "atribuyó los aumentos al gobierno"),
-        (r"(?:cambi\w*|eleg\w*|mov\w*).{0,35}fecha de vencimiento|fecha de vencimiento.{0,35}(?:cambi\w*|eleg\w*|mov\w*)", "prometió que se puede cambiar la fecha de vencimiento"),
-        (r"\bno es una estafa\b", "garantizó que no es una estafa"),
-        (r"(?:100\s*%|cien por ciento).{0,30}segur", "dio una garantía absoluta de seguridad"),
-        (r"\b(?:procedimiento|tramite|proceso) oficial\b", "presentó el procedimiento como oficial sin poder verificarlo"),
+        (r"\b(?:podes|podras|se puede|te pueden|te dejan|vas a poder)\b.{0,45}(?:cambi\w*|eleg\w*|modific\w*|mov\w*|acomod\w*).{0,35}(?:fecha de vencimiento|vencimiento|fecha de pago)", "prometió que se puede cambiar la fecha de vencimiento"),
+        (r"\b(?:no (?:es|somos|se trata de)(?: una| ninguna)? estafa|no te estan estafando)\b", "garantizó que no es una estafa"),
+        (r"(?:100\s*%|cien por ciento|totalmente|completamente|absolutamente).{0,30}segur", "dio una garantía absoluta de seguridad"),
+        (r"\b(?:procedimiento|tramite|proceso|agentes?|distribuidores?)\s+oficial(?:es)?\b|\bsomos\s+oficiales\b", "presentó el procedimiento como oficial sin poder verificarlo"),
     )
     for patron, motivo in patrones_no_autorizados:
         if re.search(patron, texto, flags=re.DOTALL):
+            if (motivo == "prometió que se puede cambiar la fecha de vencimiento"
+                    and re.search(
+                        r"\b(?:no puedo|no te puedo|no tenemos|no esta).{0,45}"
+                        r"(?:confirm\w*|asegur\w*|inform\w*).{0,60}"
+                        r"(?:vencimiento|fecha de pago)",
+                        texto,
+                    )):
+                continue
             return motivo
     return None
 

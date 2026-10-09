@@ -134,6 +134,9 @@ class ReglasDeNegocioTest(unittest.TestCase):
         self.assertTrue(main._tiene_razonamiento_filtrado(
             "<analysis>Debo decidir qué contestar</analysis> hola"
         ))
+        self.assertTrue(main._tiene_razonamiento_filtrado(
+            "1. Analizar el mensaje del cliente\n2. Preparar la respuesta"
+        ))
         self.assertFalse(main._tiene_razonamiento_filtrado(
             "perfecto, me falta solamente la foto del dorso"
         ))
@@ -178,6 +181,30 @@ class ReglasDeNegocioTest(unittest.TestCase):
         self.assertIsNone(main._motivo_respuesta_incoherente(
             "hola de nuevo, te habían interesado estos planes?", historial
         ))
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "como ya sé cuál es tu compañía, seguimos con los planes de Movistar", historial
+        ))
+        variantes = [
+            "con cuál compañía estás ahora?",
+            "cuál es tu empresa actual?",
+            "tu línea de qué compañía es?",
+            "sos de Movistar, Personal o Tuenti?",
+        ]
+        for respuesta in variantes:
+            with self.subTest(respuesta=respuesta):
+                self.assertIsNotNone(
+                    main._motivo_respuesta_incoherente(respuesta, historial)
+                )
+
+    def test_permite_preguntar_compania_de_una_segunda_linea(self):
+        historial = [
+            _mensaje(1, 0, "soy de Movistar"),
+            _mensaje(2, 1, "cuál plan te interesa?"),
+            _mensaje(3, 0, "también quiero agregar otra línea"),
+        ]
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "la otra línea de qué compañía es?", historial
+        ))
 
     def test_bloquea_precio_empresa_sin_compania(self):
         historial = [_mensaje(1, 0, "la línea es de una empresa, con CUIT")]
@@ -190,6 +217,9 @@ class ReglasDeNegocioTest(unittest.TestCase):
         self.assertIsNone(main._motivo_respuesta_incoherente(
             "decime primero en qué compañía está la línea", historial
         ))
+        self.assertIsNotNone(main._motivo_respuesta_incoherente(
+            "el plan de 30gb queda en 27.735 pesos por mes", historial
+        ))
 
     def test_bloquea_afirmaciones_comerciales_no_verificadas(self):
         historial = [_mensaje(1, 0, "tengo una duda")]
@@ -197,12 +227,35 @@ class ReglasDeNegocioTest(unittest.TestCase):
             "los aumentos los va regulando el gobierno",
             "podés pedir que te cambien la fecha de vencimiento",
             "quedate tranquila, no es una estafa",
+            "quedate tranquila que esto no es ninguna estafa",
             "es 100% seguro",
+            "es totalmente seguro",
             "es el procedimiento oficial",
+            "somos agentes oficiales",
         ]
         for texto in casos:
             with self.subTest(texto=texto):
                 self.assertIsNotNone(main._motivo_respuesta_incoherente(texto, historial))
+        respuestas_seguras = [
+            "no puedo confirmarte si se puede cambiar el vencimiento",
+            "podés verificarlo por los medios oficiales de Claro antes de seguir",
+            "los aumentos futuros los define la compañía y no puedo anticipar una fecha",
+        ]
+        for texto in respuestas_seguras:
+            with self.subTest(texto=texto):
+                self.assertIsNone(main._motivo_respuesta_incoherente(texto, historial))
+
+    def test_bloquea_aceptar_un_email_invalido_en_el_turno_actual(self):
+        historial = [
+            _mensaje(1, 1, "pasame tu email"),
+            _mensaje(2, 0, "arevalodavid@120.con"),
+        ]
+        self.assertIsNotNone(main._motivo_respuesta_incoherente(
+            "listo, lo anoto. ahora pasame tu localidad", historial
+        ))
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "ese email parece tener un error, me lo revisás?", historial
+        ))
 
     def test_normaliza_o_descarta_emails_antes_de_sheets(self):
         self.assertEqual(main._normalizar_email_ficha("juan@gmail.con"), "juan@gmail.com")
