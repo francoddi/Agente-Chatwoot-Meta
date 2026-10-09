@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import main
 
@@ -36,6 +36,22 @@ def _metadata_seguimiento(sequence):
     }
 
 
+def _metadata_bot():
+    return {
+        "data": {
+            main.FOLLOWUP_METADATA_KEY: {
+                "kind": "bot_reply",
+            }
+        }
+    }
+
+
+def _conversacion_activa(**overrides):
+    data = {"labels": [], "status": "open", "can_reply": True}
+    data.update(overrides)
+    return data
+
+
 class ReglasDeNegocioTest(unittest.TestCase):
     def test_solo_pedir_datos_no_habilita_seguimiento(self):
         messages = [
@@ -51,11 +67,40 @@ class ReglasDeNegocioTest(unittest.TestCase):
         ]
         self.assertTrue(main._cliente_ya_paso_datos(messages))
 
+    def test_explicar_portabilidad_no_equivale_a_iniciar_checklist(self):
+        messages = [
+            _mensaje(1, 1, "podés portar tu línea manteniendo el mismo número"),
+            _mensaje(2, 0, "quiero el de 30 GB"),
+        ]
+        self.assertFalse(main._cliente_ya_paso_datos(messages))
+
+    def test_dato_proactivo_tambien_habilita_seguimiento(self):
+        self.assertTrue(main._cliente_ya_paso_datos([
+            _mensaje(1, 0, "mi DNI es 12345678"),
+            _mensaje(2, 1, "perfecto, qué localidad es?", metadata=_metadata_bot()),
+        ]))
+        self.assertTrue(main._cliente_ya_paso_datos([
+            _mensaje(1, 0, "mi email: cliente@ejemplo.com"),
+        ]))
+
+    def test_webhook_duplicado_se_detecta_sin_reprocesarlo(self):
+        message_id = "prueba-duplicado-999"
+        main._seen_incoming_message_ids.pop(message_id, None)
+        self.assertTrue(main._registrar_webhook_entrante(message_id))
+        self.assertFalse(main._registrar_webhook_entrante(message_id))
+        main._seen_incoming_message_ids.pop(message_id, None)
+
     def test_dos_burbujas_del_mismo_seguimiento_cuentan_una(self):
         messages = [
             _mensaje(1, 1, "primera", metadata=_metadata_seguimiento(1)),
             _mensaje(2, 1, "segunda", metadata=_metadata_seguimiento(1)),
             _mensaje(3, 1, "otro", metadata=_metadata_seguimiento(2)),
+        ]
+        self.assertEqual(main._followups_enviados(messages), 2)
+
+    def test_secuencia_dos_sola_igual_bloquea_un_tercero(self):
+        messages = [
+            _mensaje(3, 1, "segundo", metadata=_metadata_seguimiento(2)),
         ]
         self.assertEqual(main._followups_enviados(messages), 2)
 
@@ -114,6 +159,20 @@ class ReglasDeNegocioTest(unittest.TestCase):
 
 
 class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
+    async def test_mensaje_normal_del_bot_lleva_marca_interna(self):
+        client = AsyncMock()
+        response = MagicMock()
+        client.post.return_value = response
+        context = AsyncMock()
+        context.__aenter__.return_value = client
+        with patch.object(main.httpx, "AsyncClient", return_value=context):
+            await main.send_message(10, "respuesta normal")
+        body = client.post.await_args.kwargs["json"]
+        self.assertEqual(
+            body["content_attributes"]["data"][main.FOLLOWUP_METADATA_KEY]["kind"],
+            "bot_reply",
+        )
+
     async def test_registro_sin_fotos_se_bloquea_antes_de_sheets(self):
         with self.assertRaises(main.FotosDNIIncompletasError):
             await main._registrar_derivacion_completa(12, {"Nombre": "Adán"}, [])
@@ -125,7 +184,8 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             _mensaje(3, 1, "te quedó alguna duda?", metadata=_metadata_seguimiento(1)),
         ]
         with (
-            patch.object(main, "get_conversation_labels", AsyncMock(return_value=[])),
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
             patch.object(main, "_fetch_conversation_messages", AsyncMock(return_value=messages)),
             patch.object(main, "call_openrouter", AsyncMock()) as openrouter,
         ):
@@ -136,11 +196,12 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
         base = [
             _mensaje(1, 1, "pasame tu localidad y dirección"),
             _mensaje(2, 0, "Rosario"),
-            _mensaje(3, 1, "me falta el código postal"),
+            _mensaje(3, 1, "me falta el código postal", metadata=_metadata_bot()),
         ]
         send = AsyncMock()
         with (
-            patch.object(main, "get_conversation_labels", AsyncMock(return_value=[])),
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
             patch.object(main, "_fetch_conversation_messages", AsyncMock(return_value=base)),
             patch.object(main, "call_openrouter", AsyncMock(return_value="me pasás el código postal?")),
             patch.object(main, "send_message", send),
@@ -154,11 +215,12 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
         con_primero_y_respuesta = base + [
             _mensaje(4, 1, "seguimiento uno", metadata=_metadata_seguimiento(1)),
             _mensaje(5, 0, "2000"),
-            _mensaje(6, 1, "ahora me falta la foto del DNI"),
+            _mensaje(6, 1, "ahora me falta la foto del DNI", metadata=_metadata_bot()),
         ]
         send.reset_mock()
         with (
-            patch.object(main, "get_conversation_labels", AsyncMock(return_value=[])),
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
             patch.object(main, "_fetch_conversation_messages",
                          AsyncMock(return_value=con_primero_y_respuesta)),
             patch.object(main, "call_openrouter", AsyncMock(return_value="me mandás las fotos?")),
@@ -178,15 +240,122 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             _mensaje(4, 0, "Córdoba 123"),
             _mensaje(5, 1, "seguimiento dos", metadata=_metadata_seguimiento(2)),
             _mensaje(6, 0, "mi código postal es 2000"),
-            _mensaje(7, 1, "perfecto, me falta el DNI"),
+            _mensaje(7, 1, "perfecto, me falta el DNI", metadata=_metadata_bot()),
         ]
         with (
-            patch.object(main, "get_conversation_labels", AsyncMock(return_value=[])),
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
             patch.object(main, "_fetch_conversation_messages", AsyncMock(return_value=messages)),
             patch.object(main, "call_openrouter", AsyncMock()) as openrouter,
         ):
             await main.send_followup_if_needed(10, 2700)
         openrouter.assert_not_awaited()
+
+    async def test_no_sigue_despues_de_un_mensaje_manual(self):
+        messages = [
+            _mensaje(1, 1, "pasame tu localidad y dirección", metadata=_metadata_bot()),
+            _mensaje(2, 0, "Rosario"),
+            _mensaje(3, 1, "hola, tomo yo la conversación"),  # sin metadato = humano
+        ]
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
+            patch.object(main, "_fetch_conversation_messages", AsyncMock(return_value=messages)),
+            patch.object(main, "call_openrouter", AsyncMock()) as openrouter,
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        openrouter.assert_not_awaited()
+
+    async def test_no_sigue_una_conversacion_resuelta(self):
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa(status="resolved"))),
+            patch.object(main, "_fetch_conversation_messages", AsyncMock()) as fetch,
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        fetch.assert_not_awaited()
+
+    async def test_no_sigue_si_chatwoot_no_permite_responder(self):
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa(can_reply=False))),
+            patch.object(main, "_fetch_conversation_messages", AsyncMock()) as fetch,
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        fetch.assert_not_awaited()
+
+    async def test_no_sigue_si_el_cliente_ya_respondio(self):
+        messages = [
+            _mensaje(1, 1, "pasame tu localidad", metadata=_metadata_bot()),
+            _mensaje(2, 0, "Rosario"),
+            _mensaje(3, 1, "me falta la dirección", metadata=_metadata_bot()),
+            _mensaje(4, 0, "calle Córdoba 123"),
+        ]
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
+            patch.object(main, "_fetch_conversation_messages", AsyncMock(return_value=messages)),
+            patch.object(main, "call_openrouter", AsyncMock()) as openrouter,
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        openrouter.assert_not_awaited()
+
+    async def test_varias_burbujas_se_envian_como_un_solo_seguimiento(self):
+        messages = [
+            _mensaje(1, 1, "pasame tu localidad", metadata=_metadata_bot()),
+            _mensaje(2, 0, "Rosario"),
+            _mensaje(3, 1, "me falta la dirección", metadata=_metadata_bot()),
+        ]
+        send = AsyncMock()
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
+            patch.object(main, "_fetch_conversation_messages", AsyncMock(return_value=messages)),
+            patch.object(main, "call_openrouter",
+                         AsyncMock(return_value="me pasás la calle?\n---\ny la altura?")),
+            patch.object(main, "send_message", send),
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        send.assert_awaited_once()
+        self.assertEqual(send.await_args.args[1], "me pasás la calle?\n\ny la altura?")
+
+    async def test_no_permite_derivar_desde_un_seguimiento(self):
+        messages = [
+            _mensaje(1, 1, "pasame tu localidad", metadata=_metadata_bot()),
+            _mensaje(2, 0, "Rosario"),
+            _mensaje(3, 1, "me falta la dirección", metadata=_metadata_bot()),
+        ]
+        respuesta_mala = f"escribile a Camila: {main.NUMERO_CAMILA}"
+        send = AsyncMock()
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
+            patch.object(main, "_fetch_conversation_messages", AsyncMock(return_value=messages)),
+            patch.object(main, "call_openrouter", AsyncMock(return_value=respuesta_mala)) as openrouter,
+            patch.object(main, "send_message", send),
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        self.assertEqual(openrouter.await_count, 2)
+        send.assert_not_awaited()
+
+    async def test_cancela_si_un_humano_responde_mientras_se_redacta(self):
+        antes = [
+            _mensaje(1, 1, "pasame tu localidad", metadata=_metadata_bot()),
+            _mensaje(2, 0, "Rosario"),
+            _mensaje(3, 1, "me falta la dirección", metadata=_metadata_bot()),
+        ]
+        despues = antes + [_mensaje(4, 1, "hola, sigo yo desde acá")]
+        send = AsyncMock()
+        with (
+            patch.object(main, "_get_conversation_for_followup",
+                         AsyncMock(return_value=_conversacion_activa())),
+            patch.object(main, "_fetch_conversation_messages",
+                         AsyncMock(side_effect=[antes, despues])),
+            patch.object(main, "call_openrouter", AsyncMock(return_value="me pasás la calle?")),
+            patch.object(main, "send_message", send),
+        ):
+            await main.send_followup_if_needed(10, 2700)
+        send.assert_not_awaited()
 
 
 if __name__ == "__main__":

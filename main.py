@@ -3178,6 +3178,21 @@ async def get_conversation_labels(conversation_id) -> list:
         return []
 
 
+async def _get_conversation_for_followup(conversation_id: int) -> dict | None:
+    """Trae el estado completo para decidir un seguimiento. A diferencia del flujo normal,
+    ante una falla devuelve None y se cancela: un seguimiento dudoso es peor que omitirlo."""
+    url = _chatwoot_base(conversation_id)
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(url, headers=_chatwoot_headers())
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        logger.error(f"No se pudo comprobar el estado de la conversación {conversation_id} "
+                     f"antes del seguimiento: {e}. No se envía nada.")
+        return None
+
+
 async def add_conversation_label(conversation_id, label: str) -> None:
     """Agrega una etiqueta a la conversación. Chatwoot reemplaza la lista completa de etiquetas
     en cada POST (no es incremental), así que hay que traer las que ya tiene y sumarle la nueva."""
@@ -4098,6 +4113,17 @@ async def send_message(conversation_id, content: str, private: bool = False,
     directamente no se manda más -- ver el comentario en process_conversation)."""
     url = f"{_chatwoot_base(conversation_id)}/messages"
     body = {"content": content, "message_type": "outgoing", "private": private}
+    if content_attributes is None and not private:
+        # Distingue los mensajes enviados por este bot de una respuesta manual de un agente.
+        # El seguimiento usa su propio `kind`; el resto de las salidas del bot quedan como
+        # `bot_reply`. El metadato no se muestra en Chatwoot ni llega por WhatsApp.
+        content_attributes = {
+            "data": {
+                FOLLOWUP_METADATA_KEY: {
+                    "kind": "bot_reply",
+                }
+            }
+        }
     if content_attributes:
         body["content_attributes"] = content_attributes
     try:
@@ -4770,14 +4796,26 @@ _pending_followups: dict = {}
 # verificar que SÍ matchean pese a no ser una copia literal de una frase fija.
 _PALABRAS_CHECKLIST_INICIADO = (
     "localidad", "provincia", "código postal", "codigo postal",
-    "dirección", "direccion", "dorso", "nombre completo", "portar",
+    "dirección", "direccion", "dorso", "frente", "foto", "nombre completo",
+    "dni", "cuit", "email", "correo", "fecha de nacimiento",
 )
 
 _RESPUESTAS_SIN_DATOS = {
     "si", "sí", "ok", "oki", "okay", "dale", "bueno", "joya", "perfecto", "listo",
     "entiendo", "gracias", "hola", "hola!", "buenas", "de acuerdo", "está bien",
-    "esta bien", "quiero", "me interesa", "quiero avanzar",
+    "esta bien", "quiero", "me interesa", "quiero avanzar", "quiero seguir", "avancemos",
+    "vamos", "vamos con ese", "si quiero", "sí quiero", "ese", "ese mismo",
 }
+
+
+def _mensaje_inicia_checklist(contenido: str) -> bool:
+    """Detecta que el bot empezó a pedir datos reales, no que meramente explicó que una
+    línea se puede portar. `portar` solo era demasiado amplio y habilitaba seguimientos tras
+    una simple explicación comercial."""
+    texto = (contenido or "").lower()
+    if any(palabra in texto for palabra in _PALABRAS_CHECKLIST_INICIADO):
+        return True
+    return bool(re.search(r"(?:número|numero).{0,35}(?:portar|pasar)", texto))
 
 
 def _cliente_confirmo_plan(messages: list) -> bool:
@@ -4795,7 +4833,7 @@ def _cliente_confirmo_plan(messages: list) -> bool:
         contenido = (m.get("content") or "").lower()
         if "hola camila, quiero avanzar" in contenido:
             return True
-        if any(palabra in contenido for palabra in _PALABRAS_CHECKLIST_INICIADO):
+        if _mensaje_inicia_checklist(contenido):
             return True
     return False
 
@@ -4813,10 +4851,23 @@ def _cliente_ya_paso_datos(messages: list) -> bool:
         if mtype == 1:
             texto_bot = contenido.lower()
             if ("hola camila, quiero avanzar" in texto_bot
-                    or any(palabra in texto_bot for palabra in _PALABRAS_CHECKLIST_INICIADO)):
+                    or _mensaje_inicia_checklist(texto_bot)):
                 checklist_iniciado = True
             continue
         if mtype != 0 or not checklist_iniciado:
+            # También cuenta el cliente que se adelantó y mandó un dato inequívoco antes de
+            # que el bot se lo pidiera (por ejemplo DNI, teléfono, email o un adjunto).
+            if mtype == 0:
+                if m.get("attachments"):
+                    return True
+                texto_cliente = contenido.lower()
+                if "@" in texto_cliente or re.search(r"\b\d{7,11}\b", texto_cliente):
+                    return True
+                if re.search(
+                    r"\b(?:dni|cuit|correo|email|dirección|direccion|código postal|codigo postal)\s*[:=-]",
+                    texto_cliente,
+                ):
+                    return True
             continue
         if m.get("attachments"):
             return True
@@ -4832,11 +4883,18 @@ def _cliente_ya_paso_datos(messages: list) -> bool:
     return False
 
 
-def _followup_sequence(message: dict) -> int | None:
+def _bot_message_kind(message: dict) -> str | None:
     data = (message.get("content_attributes") or {}).get("data") or {}
     marker = data.get(FOLLOWUP_METADATA_KEY) or {}
-    if marker.get("kind") != "followup":
+    kind = marker.get("kind")
+    return kind if isinstance(kind, str) else None
+
+
+def _followup_sequence(message: dict) -> int | None:
+    if _bot_message_kind(message) != "followup":
         return None
+    data = (message.get("content_attributes") or {}).get("data") or {}
+    marker = data.get(FOLLOWUP_METADATA_KEY) or {}
     try:
         return int(marker.get("sequence"))
     except (TypeError, ValueError):
@@ -4844,12 +4902,16 @@ def _followup_sequence(message: dict) -> int | None:
 
 
 def _followups_enviados(messages: list) -> int:
-    """Cuenta seguimientos persistidos en Chatwoot, sin depender de la memoria del proceso."""
+    """Devuelve la mayor secuencia persistida, sin depender de la memoria del proceso.
+
+    Usar el máximo (y no la cantidad de mensajes visibles) mantiene el límite aunque el primer
+    seguimiento haya quedado fuera de la ventana paginada pero todavía aparezca el segundo.
+    """
     secuencias = {
         secuencia for m in messages
         if (secuencia := _followup_sequence(m)) is not None
     }
-    return len(secuencias)
+    return max(secuencias, default=0)
 
 
 def schedule_followup_check(conversation_id: int) -> None:
@@ -4892,7 +4954,10 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
     """Si el cliente sigue sin responder, arma UN mensaje de seguimiento con contexto y lo
     manda. Esta función NUNCA programa otro seguimiento después de sí misma (regla 1): así,
     como mucho, el cliente recibe un solo empujón por cada silencio."""
-    labels = await get_conversation_labels(conversation_id)
+    conversation = await _get_conversation_for_followup(conversation_id)
+    if conversation is None:
+        return
+    labels = conversation.get("labels") or []
     if PAUSE_LABEL in (labels or []):
         logger.info(f"Conversación {conversation_id} pausada; se cancela el seguimiento automático.")
         return
@@ -4902,6 +4967,15 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         # a Valentina -- no le sigue mandando mensajes preguntando cómo le fue con ella.
         logger.info(f"Conversación {conversation_id}: ya está derivada a Camila, se cancela el "
                     f"seguimiento automático.")
+        return
+
+    if conversation.get("status") in {"resolved", "closed", "snoozed"}:
+        logger.info(f"Conversación {conversation_id}: está {conversation.get('status')}; "
+                    f"no se manda seguimiento.")
+        return
+    if conversation.get("can_reply") is False:
+        logger.info(f"Conversación {conversation_id}: Chatwoot indica que ya no se puede "
+                    f"responder; no se manda seguimiento.")
         return
 
     # Para contar los seguimientos persistidos se trae el historial más profundo permitido por
@@ -4928,6 +5002,13 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         # llamadas manuales accidentales.
         logger.info(f"Conversación {conversation_id}: el último mensaje ya era un seguimiento; "
                     f"no se encadena otro.")
+        return
+
+    if _bot_message_kind(ultimo) != "bot_reply":
+        # Si el último saliente fue escrito manualmente por una persona, el reloj viejo del bot
+        # no debe intervenir después ni pisar la atención humana.
+        logger.info(f"Conversación {conversation_id}: el último mensaje saliente no pertenece "
+                    f"al bot; se cancela el seguimiento automático.")
         return
 
     followups_enviados = _followups_enviados(all_messages)
@@ -4958,7 +5039,9 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         f"razón para responder (ver sección 17 del prompt). "
         f"ES OBLIGATORIO escribir algo — no dejes la respuesta vacía ni mandes solo espacios. "
         f"No repitas literalmente tu mensaje anterior. No le preguntes genéricamente 'seguís "
-        f"ahí?', hacé referencia concreta a lo último que se habló. NO uses la marca "
+        f"ahí?', hacé referencia concreta a lo último que se habló. Mandá UNA sola burbuja, "
+        f"sin el separador ---. NO derives a Camila, no generes una ficha y no mandes links de "
+        f"contacto desde este seguimiento. NO uses la marca "
         f"{FOLLOWUP_CLOSE_MARKER} en esta respuesta puntual."
     )
     # El pedido de seguimiento va como último turno "user" (no "system"), igual que en el flujo
@@ -4970,39 +5053,83 @@ async def send_followup_if_needed(conversation_id: int, wait_seconds: float | No
         {"role": "system", "content": build_camila_availability_note()},
     ] + history + [{"role": "user", "content": nudge}]
 
-    reply = await call_openrouter(messages)
+    reply = ""
+    pedido_actual = messages
+    for intento in range(1, 3):
+        candidato = await call_openrouter(pedido_actual)
+        intenta_derivar = (
+            "Hola Camila, quiero avanzar" in candidato
+            or (NUMERO_CAMILA and NUMERO_CAMILA in candidato)
+        )
+        if not intenta_derivar:
+            reply = candidato
+            break
+        logger.warning(f"Conversación {conversation_id}: el modelo intentó derivar dentro del "
+                       f"seguimiento ({intento}/2); se descarta esa respuesta.")
+        pedido_actual = messages + [
+            {"role": "assistant", "content": candidato},
+            {"role": "user", "content": (
+                "[Corrección interna: NO derives, NO generes ficha y NO mandes el link de "
+                "Camila. Redactá solamente un seguimiento breve en una sola burbuja.]"
+            )},
+        ]
+    if not reply:
+        logger.error(f"Conversación {conversation_id}: no se pudo generar un seguimiento sin "
+                     f"derivación; no se manda nada.")
+        return
     reply = reply.replace(FOLLOWUP_CLOSE_MARKER, "").strip()
+    reply = CORRECCION_DATO_RE.sub("", reply).strip()
     if not reply:
         logger.info(f"Conversación {conversation_id}: el modelo decidió no mandar seguimiento.")
         return
 
     bubbles = split_into_bubbles(reply)
     bubbles = [b2 for b in bubbles for b2 in _separar_ficha_de_burbuja(b)]
-    logger.info(f"Conversación {conversation_id}: enviando seguimiento automático en "
-                f"{len(bubbles)} burbuja(s): {reply[:200]!r}")
+    bubbles = [b for b in bubbles if "Hola Camila, quiero avanzar" not in b]
+    contenido_seguimiento = "\n\n".join(bubbles).strip()
+    if not contenido_seguimiento:
+        logger.error(f"Conversación {conversation_id}: el seguimiento no dejó contenido "
+                     f"público seguro; no se manda nada.")
+        return
+    # Revalidación final contra carreras: OpenRouter tarda varios segundos. En ese intervalo
+    # pudo responder el cliente, intervenir una persona, pausarse/resolverse la conversación o
+    # completarse la derivación. Si el estado o el último mensaje cambiaron, no se envía nada.
+    conversation_final = await _get_conversation_for_followup(conversation_id)
+    if conversation_final is None:
+        return
+    labels_finales = conversation_final.get("labels") or []
+    if (PAUSE_LABEL in labels_finales or DERIVADO_LABEL in labels_finales
+            or conversation_final.get("status") in {"resolved", "closed", "snoozed"}
+            or conversation_final.get("can_reply") is False):
+        logger.info(f"Conversación {conversation_id}: el estado cambió mientras se redactaba "
+                    f"el seguimiento; se cancela.")
+        return
+    mensajes_finales = await _fetch_conversation_messages(conversation_id, minimo=1)
+    visibles_finales = sorted(
+        [m for m in mensajes_finales if not m.get("private")],
+        key=lambda m: m.get("id") or 0,
+    )
+    if not visibles_finales or visibles_finales[-1].get("id") != ultimo.get("id"):
+        logger.info(f"Conversación {conversation_id}: llegó otro mensaje mientras se redactaba "
+                    f"el seguimiento; se cancela.")
+        return
 
+    logger.info(f"Conversación {conversation_id}: enviando un seguimiento automático: "
+                f"{contenido_seguimiento[:200]!r}")
     secuencia = followups_enviados + 1
-    for bubble in bubbles:
-        # Mismo criterio que en process_conversation: la ficha no se manda para nada, ni al
-        # cliente ni como nota interna (ver el comentario largo ahí).
-        if "Hola Camila, quiero avanzar" in bubble:
-            continue
-        try:
-            # Todas las burbujas llevan la misma secuencia. El conteo usa secuencias únicas,
-            # por lo que siguen siendo UN solo seguimiento, y la última burbuja también queda
-            # marcada para impedir que otro seguimiento se encadene sin respuesta del cliente.
-            metadata = {
-                "data": {
-                    FOLLOWUP_METADATA_KEY: {
-                        "kind": "followup",
-                        "sequence": secuencia,
-                    }
+    try:
+        metadata = {
+            "data": {
+                FOLLOWUP_METADATA_KEY: {
+                    "kind": "followup",
+                    "sequence": secuencia,
                 }
             }
-            await send_message(conversation_id, bubble, private=False, content_attributes=metadata)
-        except Exception as e:
-            logger.error(f"Error enviando seguimiento a la conversación {conversation_id}: {e}")
-            break
+        }
+        await send_message(conversation_id, contenido_seguimiento, private=False,
+                           content_attributes=metadata)
+    except Exception as e:
+        logger.error(f"Error enviando seguimiento a la conversación {conversation_id}: {e}")
 
 
 def _extraer_fotos_dni(all_messages: list) -> tuple:
@@ -5484,7 +5611,13 @@ async def process_conversation(conversation_id: int) -> None:
     # Seguimiento automático: se programa después de responder a un mensaje real del cliente,
     # salvo que el modelo haya marcado el tema como cerrado. El seguimiento en sí (más abajo)
     # NO vuelve a llamar a esta función, así que nunca se encadena solo.
-    if close_followups:
+    derivacion_en_respuesta = (
+        "Hola Camila, quiero avanzar" in reply
+        or (NUMERO_CAMILA and NUMERO_CAMILA in reply)
+    )
+    if close_followups or derivacion_en_respuesta:
+        # Aunque fallara la etiqueta `ddd`, nunca seguir automáticamente a alguien a quien ya
+        # se le mandó la derivación. El aviso/reintento de registro se maneja por separado.
         cancel_followup_check(conversation_id)
     else:
         schedule_followup_check(conversation_id)
@@ -5493,6 +5626,26 @@ async def process_conversation(conversation_id: int) -> None:
 # --------------------------------------------------------------------------------------
 # Endpoints
 # --------------------------------------------------------------------------------------
+_seen_incoming_message_ids: dict = {}
+_SEEN_INCOMING_MAX = 5000
+
+
+def _registrar_webhook_entrante(message_id) -> bool:
+    """True la primera vez que se ve un message_id; False en reintentos duplicados de Chatwoot.
+
+    Evita que un webhook repetido, ya procesado, cancele el nuevo temporizador de seguimiento.
+    La caché es acotada y vive en memoria; Chatwoot igualmente vuelve a ser la fuente de verdad.
+    """
+    if message_id is None:
+        return True
+    if message_id in _seen_incoming_message_ids:
+        return False
+    _seen_incoming_message_ids[message_id] = None
+    if len(_seen_incoming_message_ids) > _SEEN_INCOMING_MAX:
+        _seen_incoming_message_ids.pop(next(iter(_seen_incoming_message_ids)))
+    return True
+
+
 @app.get("/")
 async def health():
     return {
@@ -5526,9 +5679,19 @@ async def webhook(request: Request):
         logger.warning("Webhook message_created sin conversation.id, se ignora.")
         return {"status": "ignored", "reason": "no_conversation_id"}
 
+    if not _registrar_webhook_entrante(message_id):
+        logger.info(f"Webhook duplicado ignorado: conversación={conversation_id} "
+                    f"mensaje={message_id}")
+        return {"status": "ignored", "reason": "duplicate_message"}
+
     attachments = payload.get("attachments") or []
     logger.info(f"Mensaje recibido: conversación={conversation_id} mensaje={message_id} "
                 f"adjuntos={len(attachments)}")
+
+    # Cualquier mensaje nuevo del cliente termina el silencio anterior, incluso si la charla
+    # está pausada para atención humana. El segundo seguimiento solo podrá nacer después de que
+    # el bot vuelva a responder y se abra un silencio nuevo.
+    cancel_followup_check(conversation_id)
 
     # Pausa manual: si tiene la etiqueta PAUSE_LABEL, no responder (humano atendiendo). Se
     # vuelve a chequear justo antes de responder, por si se pausa mientras se espera el debounce.
