@@ -54,6 +54,29 @@ def _conversacion_activa(**overrides):
 
 
 class ReglasDeNegocioTest(unittest.TestCase):
+    def test_precios_consumidor_final_estan_al_65_por_ciento(self):
+        movistar_tuenti = main.SYSTEM_PROMPT.split(
+            "28. CONSUMIDOR FINAL — MOVISTAR / TUENTI", 1
+        )[1].split("29. EMPRESA — MOVISTAR / TUENTI", 1)[0]
+        personal = main.SYSTEM_PROMPT.split(
+            "31. CONSUMIDOR FINAL — PERSONAL", 1
+        )[1].split("32. CONSUMIDOR FINAL — LÍNEA NUEVA", 1)[0]
+        tabla_65 = (
+            "4 GB → $20.997",
+            "7 GB → $23.870",
+            "10 GB → $30.345",
+            "30 GB → $40.460",
+            "50 GB → $46.529",
+        )
+
+        for seccion in (movistar_tuenti, personal):
+            self.assertIn("65% OFF", seccion)
+            for precio in tabla_65:
+                self.assertIn(precio, seccion)
+
+        self.assertNotIn("70% OFF", movistar_tuenti)
+        self.assertNotIn("70% OFF", personal)
+
     def test_solo_pedir_datos_no_habilita_seguimiento(self):
         messages = [
             _mensaje(1, 1, "pasame nombre completo, localidad y dirección"),
