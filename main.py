@@ -5270,15 +5270,48 @@ def _mensaje_inicia_checklist(contenido: str) -> bool:
     ))
 
 
-def _adjunto_aporta_dato(message: dict) -> bool:
-    """Solo documentos/imágenes cuentan como dato; un audio ilegible no aporta información."""
-    for attachment in message.get("attachments") or []:
-        if attachment.get("file_type") == "image":
-            return True
-        if (attachment.get("file_type") == "file"
-                and (attachment.get("extension") or "").lower() == "pdf"):
-            return True
-    return False
+def _mensaje_menciona_documentacion_identidad(contenido: str) -> bool:
+    """Detecta contexto inequívoco de documentación personal, no cualquier foto."""
+    texto = unicodedata.normalize("NFD", (contenido or "").lower())
+    texto = "".join(char for char in texto if unicodedata.category(char) != "Mn")
+    return bool(re.search(
+        r"\b(?:dni|documento(?:s|acion)?(?: de identidad)?|mi argentina|frente|dorso)\b",
+        texto,
+    ))
+
+
+def _adjunto_identificado_como_no_documental(message: dict) -> bool:
+    """True si el propio cliente describe el adjunto como algo ajeno a su documentación."""
+    if not message.get("attachments"):
+        return False
+    texto = unicodedata.normalize("NFD", (message.get("content") or "").lower())
+    texto = "".join(char for char in texto if unicodedata.category(char) != "Mn")
+    return bool(re.search(
+        r"\b(?:factura|comprobante|selfie|captura|promo|promocion|plan)\b",
+        texto,
+    ))
+
+
+def _adjunto_aporta_dato(message: dict, documentacion_solicitada: bool = False) -> bool:
+    """Una imagen/PDF solo cuenta si el contexto indica que es documentación personal.
+
+    La mera existencia de un adjunto no demuestra que el cliente haya pasado datos: puede ser
+    una factura, una captura comercial, un emoji o cualquier otra imagen. Un audio tampoco cuenta
+    porque actualmente el bot no lo transcribe.
+    """
+    tiene_documento_posible = any(
+        attachment.get("file_type") == "image"
+        or (attachment.get("file_type") == "file"
+            and (attachment.get("extension") or "").lower() == "pdf")
+        for attachment in message.get("attachments") or []
+    )
+    if not tiene_documento_posible:
+        return False
+
+    contenido = message.get("content") or ""
+    if _adjunto_identificado_como_no_documental(message):
+        return False
+    return documentacion_solicitada or _mensaje_menciona_documentacion_identidad(contenido)
 
 
 def _respuesta_sin_dato_real(contenido: str) -> bool:
@@ -5321,6 +5354,7 @@ def _cliente_ya_paso_datos(messages: list) -> bool:
     checklist. No alcanza con que el bot haya pedido datos: tiene que existir una respuesta
     sustantiva del cliente (texto, número, email o adjunto) posterior a ese pedido."""
     checklist_iniciado = False
+    documentacion_solicitada = False
     for m in sorted(messages, key=lambda item: item.get("id") or 0):
         if m.get("private"):
             continue
@@ -5328,15 +5362,18 @@ def _cliente_ya_paso_datos(messages: list) -> bool:
         contenido = (m.get("content") or "").strip()
         if mtype == 1:
             texto_bot = contenido.lower()
+            if _mensaje_menciona_documentacion_identidad(texto_bot):
+                documentacion_solicitada = True
             if ("hola camila, quiero avanzar" in texto_bot
                     or _mensaje_inicia_checklist(texto_bot)):
                 checklist_iniciado = True
             continue
         if mtype != 0 or not checklist_iniciado:
             # También cuenta el cliente que se adelantó y mandó un dato inequívoco antes de
-            # que el bot se lo pidiera (por ejemplo DNI, teléfono, email o un adjunto).
+            # que el bot se lo pidiera (por ejemplo DNI, teléfono o email). Un adjunto sin texto
+            # solo cuenta cuando el bot ya había pedido documentación.
             if mtype == 0:
-                if _adjunto_aporta_dato(m):
+                if _adjunto_aporta_dato(m, documentacion_solicitada):
                     return True
                 texto_cliente = contenido.lower()
                 if "@" in texto_cliente or re.search(r"\b\d{7,11}\b", texto_cliente):
@@ -5347,8 +5384,10 @@ def _cliente_ya_paso_datos(messages: list) -> bool:
                 ):
                     return True
             continue
-        if _adjunto_aporta_dato(m):
+        if _adjunto_aporta_dato(m, documentacion_solicitada):
             return True
+        if _adjunto_identificado_como_no_documental(m):
+            continue
         normalizado = re.sub(r"[\s.,!?¿¡]+", " ", contenido.lower()).strip()
         if _respuesta_sin_dato_real(contenido):
             continue

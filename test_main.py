@@ -107,6 +107,37 @@ class ReglasDeNegocioTest(unittest.TestCase):
             _mensaje(1, 0, "mi email: cliente@ejemplo.com"),
         ]))
 
+    def test_imagen_ajena_al_checklist_no_habilita_seguimiento(self):
+        messages = [
+            _mensaje(1, 0, "mirá esta promo", attachments=[_imagen("promo", 10)]),
+            _mensaje(2, 1, "pasame nombre completo, DNI y fotos frente y dorso"),
+            _mensaje(3, 0, "dame un rato"),
+            _mensaje(4, 1, "dale, espero las fotos"),
+        ]
+        self.assertFalse(main._cliente_ya_paso_datos(messages))
+
+    def test_adjunto_solo_cuenta_con_contexto_de_documentacion(self):
+        solicitado = [
+            _mensaje(1, 1, "pasame nombre completo, DNI y fotos frente y dorso"),
+            _mensaje(2, 0, attachments=[_imagen("dni-frente", 10)]),
+        ]
+        proactivo_identificado = [
+            _mensaje(1, 0, "te mando mi DNI", attachments=[_imagen("dni", 10)]),
+        ]
+        sin_contexto = [
+            _mensaje(1, 0, attachments=[_imagen("imagen-cualquiera", 10)]),
+        ]
+        self.assertTrue(main._cliente_ya_paso_datos(solicitado))
+        self.assertTrue(main._cliente_ya_paso_datos(proactivo_identificado))
+        self.assertFalse(main._cliente_ya_paso_datos(sin_contexto))
+
+    def test_factura_no_cuenta_aunque_se_haya_pedido_dni(self):
+        messages = [
+            _mensaje(1, 1, "pasame nombre completo, DNI y fotos frente y dorso"),
+            _mensaje(2, 0, "esta es mi factura", attachments=[_imagen("factura", 10)]),
+        ]
+        self.assertFalse(main._cliente_ya_paso_datos(messages))
+
     def test_webhook_duplicado_se_detecta_sin_reprocesarlo(self):
         message_id = "prueba-duplicado-999"
         main._seen_incoming_message_ids.pop(message_id, None)
