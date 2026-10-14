@@ -3068,17 +3068,17 @@ FOLLOWUP_METADATA_KEY = "agente_chatwoot_meta"
 # el código postal, el bot dijo "ok no pasa nada" pero nunca se corrigió nada en Sheets).
 CORRECCION_DATO_RE = re.compile(r'\[CORRECCION_DATO campo="([^"]+)" valor="([^"]+)"\]')
 _CAMPO_A_COLUMNA_SHEETS = {
-    "Nombre": "E",
-    "DNI": "F",
-    "CUIT": "F",
-    "Fecha de nacimiento": "G",
-    "Email": "K",
-    "Provincia": "N",
-    "Localidad": "O",
-    "Dirección": "P",
-    "Código postal": "S",
-    "Número a portar": "T",
-    "Plan elegido": "V",
+    "Nombre": "F",
+    "DNI": "G",
+    "CUIT": "G",
+    "Fecha de nacimiento": "H",
+    "Email": "L",
+    "Provincia": "O",
+    "Localidad": "P",
+    "Dirección": "Q",
+    "Código postal": "T",
+    "Número a portar": "U",
+    "Plan elegido": "W",
 }
 
 # Resumen diario (opcional): a la hora configurada (huso Argentina), le manda al número del
@@ -3387,7 +3387,7 @@ async def _contar_ventas_por_cerrar_del_dia(fecha: date) -> int:
     token = await _get_sheets_access_token()
     if not token:
         return 0
-    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!D:D", safe="")
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!E:E", safe="")
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
         f"/values/{encoded_range}"
@@ -3584,7 +3584,7 @@ async def append_google_sheets_row(row: list, intentos: int = 3):
 
 async def _corregir_dato_sheets(telefono: str, campo: str, valor: str) -> bool:
     """Corrige UN dato puntual en la fila ya cargada en Sheets de este cliente, en vez de
-    agregar una fila nueva o dejar el dato mal. Busca en la columna T (NUMERO DE CONTACTO) la
+    agregar una fila nueva o dejar el dato mal. Busca en la columna V (NUMERO DE CONTACTO) la
     coincidencia más reciente (de abajo hacia arriba, por si el mismo teléfono aparece más de
     una vez) y pisa solo la celda correspondiente al campo. Se usa cuando el cliente avisa un
     error DESPUÉS de haber sido derivado (ver sección 49.2 del SYSTEM_PROMPT) -- antes de esto,
@@ -3602,7 +3602,7 @@ async def _corregir_dato_sheets(telefono: str, campo: str, valor: str) -> bool:
         logger.error("No se pudo obtener un token de Google Sheets; no se corrigió el dato.")
         return False
 
-    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!U:U", safe="")
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!V:V", safe="")
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
         f"/values/{encoded_range}"
@@ -3674,7 +3674,7 @@ async def _actualizar_fotos_dni_pendientes(
         return 0, 0
 
     base = f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}/values"
-    rango = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:V", safe="")
+    rango = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:W", safe="")
     headers = {"Authorization": f"Bearer {token}"}
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -3690,13 +3690,13 @@ async def _actualizar_fotos_dni_pendientes(
             cambios = []
             filas_con_cambios = set()
             for indice, fila in enumerate(filas[1:], start=2):
-                telefono_fila = fila[20] if len(fila) > 20 else ""
+                telefono_fila = fila[21] if len(fila) > 21 else ""
                 if not _mismo_telefono(telefono_fila, telefono):
                     continue
                 coincidencias += 1
                 for columna_indice, columna, url, texto in (
-                    (8, "I", foto_dni_frente, "Ver foto DNI"),
-                    (9, "J", foto_dni_dorso, "Ver foto DNI (dorso)"),
+                    (9, "J", foto_dni_frente, "Ver foto DNI"),
+                    (10, "K", foto_dni_dorso, "Ver foto DNI (dorso)"),
                 ):
                     actual = str(fila[columna_indice]).strip() if len(fila) > columna_indice else ""
                     if not url or (actual and "pendiente con camila" not in actual.lower()):
@@ -3729,7 +3729,7 @@ async def _actualizar_fotos_dni_pendientes(
 
 
 async def _forzar_links_visibles(updated_range: str) -> None:
-    """Fuerza el formato "LINKED" (clickeable, subrayado) en las columnas I y J (Foto DNI /
+    """Fuerza el formato "LINKED" (clickeable, subrayado) en las columnas J y K (Foto DNI /
     Foto DNI dorso) de la fila recién agregada.
 
     Por qué hace falta: encontrado en vivo con ventas reales -- una fila nueva puede heredar,
@@ -3754,8 +3754,8 @@ async def _forzar_links_visibles(updated_range: str) -> None:
                     "sheetId": _GOOGLE_SHEETS_SHEET_ID,
                     "startRowIndex": fila - 1,
                     "endRowIndex": fila,
-                    "startColumnIndex": 8,  # I
-                    "endColumnIndex": 10,  # J (exclusivo, o sea cubre I y J)
+                    "startColumnIndex": 9,  # J
+                    "endColumnIndex": 11,  # K (exclusivo, o sea cubre J y K)
                 },
                 "cell": {"userEnteredFormat": {"hyperlinkDisplayType": "LINKED"}},
                 "fields": "userEnteredFormat.hyperlinkDisplayType",
@@ -3777,8 +3777,8 @@ async def _avisar_error_sheets(row: list) -> None:
     activa para que esto se intente — si no la tiene, queda solo el log de error."""
     if not NUMERO_DUENO:
         return
-    nombre = row[4] if len(row) > 4 else "(sin nombre)"
-    numero = row[19] if len(row) > 19 else "(sin número)"
+    nombre = row[5] if len(row) > 5 else "(sin nombre)"
+    numero = row[20] if len(row) > 20 else "(sin número)"
     mensaje = (
         f"⚠️ No se pudo cargar en la planilla una venta:\n"
         f"Nombre: {nombre}\n"
@@ -4164,7 +4164,7 @@ def _split_planes(texto: str) -> list:
 
 
 async def _pares_numero_telefono_existentes() -> set:
-    """Lee las columnas T (NUMERO A PORTAR) y U (NUMERO DE CONTACTO) de todo el Sheet y arma el
+    """Lee las columnas U (NUMERO A PORTAR) y V (NUMERO DE CONTACTO) de todo el Sheet y arma el
     set de pares (número, teléfono) ya cargados, comparando solo dígitos (para no fallar por
     formato: con o sin '+', espacios, etc.). Se usa para no duplicar una fila que ya existe (ver
     log_to_google_sheets). Si falla la lectura, devuelve un set vacío (no bloquea la carga por
@@ -4175,7 +4175,7 @@ async def _pares_numero_telefono_existentes() -> set:
     token = await _get_sheets_access_token()
     if not token:
         return set()
-    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!T:U", safe="")
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!U:V", safe="")
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
         f"/values/{encoded_range}"
@@ -4186,7 +4186,7 @@ async def _pares_numero_telefono_existentes() -> set:
             resp.raise_for_status()
             filas = resp.json().get("values", []) or []
     except Exception as e:
-        logger.error(f"No se pudo leer T:U de Sheets para chequear duplicados: {e}")
+        logger.error(f"No se pudo leer U:V de Sheets para chequear duplicados: {e}")
         return set()
 
     pares = set()
@@ -4200,9 +4200,9 @@ async def _pares_numero_telefono_existentes() -> set:
 # Columnas (índice dentro de `row` en log_to_google_sheets) que una ficha corregida puede
 # actualizar en una fila ya cargada: Nombre, DNI, F. nac, fotos, Email, Empresa, Segmento,
 # Provincia, Localidad, Dirección, CP y Plan. Las que completa el equipo (Estado, Vendedora,
-# Fecha portación, Altura, Piso) y la fecha de venta nunca se tocan.
-_COLUMNAS_ACTUALIZABLES = [4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 18, 21]
-_COLUMNAS_DEL_TITULAR = [5, 6]  # DNI y F. nac: si cambia el titular, los viejos ya no sirven
+# Fecha portación, Hora de carga, Altura, Piso) y la fecha de venta nunca se tocan.
+_COLUMNAS_ACTUALIZABLES = [5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 19, 22]
+_COLUMNAS_DEL_TITULAR = [6, 7]  # DNI y F. nac: si cambia el titular, los viejos ya no sirven
 
 
 async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> bool:
@@ -4228,7 +4228,7 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> b
     headers = {"Authorization": f"Bearer {token}"}
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!T:U', safe='')}",
+            resp = await client.get(f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!U:V', safe='')}",
                                     headers=headers)
             resp.raise_for_status()
             filas = resp.json().get("values", []) or []
@@ -4243,7 +4243,7 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> b
                 return False
             # FORMULA para comparar las fotos por su =HYPERLINK(...) y no por el texto visible.
             resp = await client.get(
-                f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}:V{fila_n}', safe='')}",
+                f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}:W{fila_n}', safe='')}",
                 headers=headers, params={"valueRenderOption": "FORMULA"})
             resp.raise_for_status()
             actual = (resp.json().get("values") or [[]])[0]
@@ -4260,11 +4260,11 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> b
 
             # Mismo titular aunque el nombre venga en otro orden ("Acosta Jonathan Ernesto" vs
             # "Jonathan Ernesto Acosta") o sin tildes.
-            titular_cambio = bool(_normalizar(row[4])) and _palabras(_normalizar(row[4])) != _palabras(_celda(4))
+            titular_cambio = bool(_normalizar(row[5])) and _palabras(_normalizar(row[5])) != _palabras(_celda(5))
             cambios = []
             for i in _COLUMNAS_ACTUALIZABLES:
                 nuevo = _normalizar(row[i])
-                if i == 4 and not titular_cambio:
+                if i == 5 and not titular_cambio:
                     continue  # mismo titular: el nombre queda como estaba aunque venga en otro orden
                 if i in _COLUMNAS_DEL_TITULAR and not titular_cambio and _celda(i):
                     # DNI y F. nac ya cargados solo se tocan si cambió el titular (caso real
@@ -4287,7 +4287,7 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> b
             resp.raise_for_status()
         logger.info(f"Fila {fila_n} de Sheets actualizada con la ficha corregida: "
                     f"{', '.join(f'{chr(65 + i)}={_normalizar(v)[:40]!r}' for i, v in cambios)}")
-        if any(i in (8, 9) for i, _ in cambios):
+        if any(i in (9, 10) for i, _ in cambios):
             await _forzar_links_visibles(f"{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}")
         return True
     except Exception as e:
@@ -4310,23 +4310,26 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
                                  foto_dni_pendiente: bool = False) -> bool:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (re-confirmado contra el
-    encabezado real el 26/09/2026, después de que el equipo insertó una columna sin nombre
+    encabezado real el 14/10/2026, después de que el equipo insertó "Hora de carga" en D;
+    previamente, el 26/09/2026, había insertado una columna sin nombre
     entre "F. nac" y "Foto DNI" -- CASO REAL: esto corrió en silencio todas las columnas de
     "Foto DNI" en adelante una posición a la izquierda durante unos días, hasta que se detectó
     con una venta real (Ruben Emilio Perez, 26/09) que se veía "toda corrida". Si vuelven a
     insertar/mover columnas a mano, hay que re-confirmar esto contra el encabezado real, porque
     un desfasaje acá corre todos los datos de columna en silencio, sin ningún error visible):
 
-    Estado | Vendedora | Fecha portación | Fecha de venta | Nombre y apellido | DNI | F. nac |
-    (columna sin nombre, se deja vacía) | Foto DNI | Foto DNI dorso | Email | Empresa donante |
-    Segmento | Provincia | Localidad | Direcc entrega | Altura | Piso/depto | CP |
-    Número a portar | Número de contacto | Plan |
+    Estado | Vendedora | Fecha portación | Hora de carga | Fecha de venta |
+    Nombre y apellido | DNI | F. nac | (columna sin nombre, se deja vacía) | Foto DNI |
+    Foto DNI dorso | Email | Empresa donante | Segmento | Provincia | Localidad |
+    Direcc entrega | Altura | Piso/depto | CP | Número a portar | Número de contacto | Plan |
     [Num seguimiento correo | PIN | Observaciones | Observaciones — estas últimas 4 no se
     escriben, ver abajo]
 
     Estado, Vendedora, Altura y Piso/depto quedan vacíos a propósito (no son datos que pida
     Valentina); Fecha portación también queda vacía (la completa el equipo cuando se hace el
-    cambio real). "DNI" se completa con el DNI si es Consumidor Final o el CUIT si es Empresa
+    cambio real). "Hora de carga" registra una sola vez la hora argentina en que se agregó la
+    fila y nunca se modifica al sumar fotos o corregir datos. "DNI" se completa con el DNI si
+    es Consumidor Final o el CUIT si es Empresa
     (la planilla no tiene columna separada para CUIT). "Segmento" se completa con Tipo de
     cliente (Consumidor final / Empresa). "F. nac", "Foto DNI" y "Foto DNI dorso" se completan
     solo si el cliente mandó la foto del documento (ver _extraer_fotos_dni): la fecha de
@@ -4371,7 +4374,9 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     # -- pasó en vivo con una venta real: la columna F. NAC no tiene formato de fecha aplicado
     # (es nueva), así que mostraba el número crudo en vez de la fecha.
     fecha_nacimiento_celda = f"'{fecha_nacimiento}" if fecha_nacimiento else ""
-    fecha_venta = datetime.now(CAMILA_TIMEZONE).strftime("%d/%m/%Y")
+    ahora_carga = datetime.now(CAMILA_TIMEZONE)
+    hora_carga = f"'{ahora_carga.strftime('%H:%M')}"
+    fecha_venta = ahora_carga.strftime("%d/%m/%Y")
     numeros = _split_numeros_a_portar(campos.get("Número a portar", "")) or [""]
 
     # Si porta varias líneas, "Plan elegido" viene como una lista en el mismo orden que
@@ -4395,6 +4400,7 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             "",  # Estado (lo completa el equipo)
             "",  # Vendedora (la completa el equipo)
             "",  # Fecha portación (la completa el equipo)
+            hora_carga,  # Hora de carga original (Argentina); nunca se actualiza después
             fecha_venta,
             _valor_seguro_sheets(campos.get("Nombre", "")),
             _valor_seguro_sheets(campos.get("DNI", "") or campos.get("CUIT", "")),
