@@ -248,13 +248,15 @@ class ReglasDeNegocioTest(unittest.TestCase):
         )
         actualizada = main._agregar_aviso_foto_pendiente(respuesta)
         parte_publica, ficha = actualizada.split("Hola Camila, quiero avanzar", 1)
-        self.assertIn("Camila", parte_publica)
-        self.assertIn("foto del DNI", parte_publica)
+        self.assertIn("mi jefa", parte_publica)
+        self.assertIn("fotos del frente y dorso del DNI", parte_publica)
         self.assertIn(main.NUMERO_CAMILA, parte_publica)
         self.assertIn("Nombre: Ana", ficha)
 
     def test_prompt_permite_derivar_si_la_foto_queda_pendiente(self):
-        self.assertIn("PENDIENTE_CON_CAMILA", main.SYSTEM_PROMPT)
+        self.assertIn("FOTO_DNI nunca bloquea: se deriva sin esperar respuesta", main.SYSTEM_PROMPT)
+        self.assertIn("No esperes una respuesta ni una foto para derivar", main.SYSTEM_PROMPT)
+        self.assertIn("si no, lo terminás con ella directamente", main.SYSTEM_PROMPT)
         self.assertNotIn("OBLIGATORIA — BLOQUEA EL HANDOFF", main.SYSTEM_PROMPT)
         self.assertNotIn("NO se deriva a Camila (no se genera la", main.SYSTEM_PROMPT)
 
@@ -728,13 +730,25 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             "bot_reply",
         )
 
-    async def test_registro_sin_fotos_se_bloquea_antes_de_sheets(self):
-        with self.assertRaises(main.FotosDNIIncompletasError):
+    async def test_registro_sin_fotos_deriva_y_marca_pendientes(self):
+        sheets = AsyncMock(return_value=True)
+        notify = AsyncMock()
+        label = AsyncMock(return_value=True)
+        with (
+            patch.object(main, "_verificar_fotos_dni", AsyncMock(return_value=("", ""))),
+            patch.object(main, "_get_contact_phone", AsyncMock(return_value="+5492200000000")),
+            patch.object(main, "log_to_google_sheets", sheets),
+            patch.object(main, "notify_camila_carga_sheets", notify),
+            patch.object(main, "add_conversation_label", label),
+        ):
             await main._registrar_derivacion_completa(
                 12,
                 _ficha_consumidor_completa(),
                 [],
             )
+        self.assertTrue(sheets.await_args.kwargs["foto_dni_pendiente"])
+        self.assertTrue(notify.await_args.kwargs["foto_dni_pendiente"])
+        label.assert_awaited_once_with(12, main.DERIVADO_LABEL)
 
     async def test_registro_con_negativa_explicita_deja_foto_pendiente(self):
         mensajes = [
@@ -781,6 +795,40 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
         row = append.await_args.args[0]
         self.assertEqual(row[8], "Pendiente con Camila")
         self.assertEqual(row[9], "Pendiente con Camila")
+
+    async def test_fotos_posteriores_actualizan_todas_las_filas_sin_agregar_ventas(self):
+        encabezado = [""] * 22
+        fila_1 = [""] * 22
+        fila_2 = [""] * 22
+        fila_1[8] = fila_1[9] = "Pendiente con Camila"
+        fila_2[8] = fila_2[9] = "Pendiente con Camila"
+        fila_1[20] = fila_2[20] = "+5492200000000"
+
+        respuesta_get = MagicMock()
+        respuesta_get.json.return_value = {"values": [encabezado, fila_1, fila_2]}
+        respuesta_post = MagicMock()
+        cliente = AsyncMock()
+        cliente.get.return_value = respuesta_get
+        cliente.post.return_value = respuesta_post
+        contexto = AsyncMock()
+        contexto.__aenter__.return_value = cliente
+        forzar = AsyncMock()
+
+        with (
+            patch.object(main, "GOOGLE_SHEETS_CREDENTIALS_JSON", "{}"),
+            patch.object(main, "GOOGLE_SHEETS_SPREADSHEET_ID", "planilla"),
+            patch.object(main, "_get_sheets_access_token", AsyncMock(return_value="token")),
+            patch.object(main.httpx, "AsyncClient", return_value=contexto),
+            patch.object(main, "_forzar_links_visibles", forzar),
+        ):
+            filas, cambios = await main._actualizar_fotos_dni_pendientes(
+                "+5492200000000", "foto-frente", "foto-dorso"
+            )
+
+        self.assertEqual((filas, cambios), (2, 4))
+        rangos = [item["range"] for item in cliente.post.await_args.kwargs["json"]["data"]]
+        self.assertEqual(rangos, ["Hoja 1!I2", "Hoja 1!J2", "Hoja 1!I3", "Hoja 1!J3"])
+        self.assertEqual(forzar.await_count, 2)
 
     async def test_registro_con_una_cara_conserva_la_foto_recibida(self):
         mensajes = [
@@ -882,6 +930,23 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 await main._verificar_fotos_dni(mensajes_digital),
                 ("dni-digital-ambas", "dni-digital-ambas"),
+            )
+
+    async def test_verifica_una_sola_cara_sin_descartarla(self):
+        mensajes = [
+            _mensaje(1, 1, "si querés mandame las fotos del DNI"),
+            _mensaje(2, 0, attachments=[_imagen("dni-dorso", 104)]),
+        ]
+        main._dni_verification_cache.clear()
+        with (
+            patch.object(main, "download_attachment",
+                         AsyncMock(return_value=(b"imagen", "image/jpeg"))),
+            patch.object(main, "call_openrouter",
+                         AsyncMock(return_value="PARCIAL DORSO=1")),
+        ):
+            self.assertEqual(
+                await main._verificar_fotos_dni(mensajes),
+                ("", "dni-dorso"),
             )
 
     async def test_build_message_content_entrega_todos_los_adjuntos_al_modelo(self):
