@@ -72,28 +72,49 @@ class ReglasDeNegocioTest(unittest.TestCase):
     def _ficha_consumidor_completa(self):
         return _ficha_consumidor_completa()
 
-    def test_precios_consumidor_final_estan_al_65_por_ciento(self):
+    def test_precios_consumidor_final_distinguen_movistar_y_personal(self):
         movistar_tuenti = main.SYSTEM_PROMPT.split(
             "28. CONSUMIDOR FINAL — MOVISTAR / TUENTI", 1
         )[1].split("29. EMPRESA — MOVISTAR / TUENTI", 1)[0]
         personal = main.SYSTEM_PROMPT.split(
             "31. CONSUMIDOR FINAL — PERSONAL", 1
         )[1].split("32. CONSUMIDOR FINAL — LÍNEA NUEVA", 1)[0]
-        tabla_65 = (
+        tabla_movistar_65 = (
             "4 GB → $20.997",
             "7 GB → $23.870",
             "10 GB → $30.345",
             "30 GB → $40.460",
             "50 GB → $46.529",
         )
+        tabla_personal_70 = (
+            "4 GB → $17.997",
+            "7 GB → $20.460",
+            "10 GB → $26.010",
+            "30 GB → $34.680",
+            "50 GB → $39.882",
+        )
 
-        for seccion in (movistar_tuenti, personal):
-            self.assertIn("65% OFF", seccion)
-            for precio in tabla_65:
-                self.assertIn(precio, seccion)
+        self.assertIn("65% OFF", movistar_tuenti)
+        for precio in tabla_movistar_65:
+            self.assertIn(precio, movistar_tuenti)
+
+        self.assertIn("70% OFF", personal)
+        for precio in tabla_personal_70:
+            self.assertIn(precio, personal)
+        for beneficio in (
+            "+10 GB de regalo durante 6 meses, en todos los planes",
+            "WhatsApp gratis",
+            "llamadas ilimitadas",
+            "roaming internacional",
+            "pack de GB al 50%",
+            "1 mes de regalo de Disney+ y Prime Video",
+            "3 meses de regalo de YouTube Premium",
+        ):
+            self.assertIn(beneficio, personal)
 
         self.assertNotIn("70% OFF", movistar_tuenti)
-        self.assertNotIn("70% OFF", personal)
+        self.assertNotIn("65% OFF", personal)
+        self.assertIn("El plan de 2 GB ya no existe", personal)
 
     def test_solo_pedir_datos_no_habilita_seguimiento(self):
         messages = [
@@ -391,6 +412,41 @@ class ReglasDeNegocioTest(unittest.TestCase):
         ))
         self.assertIsNotNone(main._motivo_respuesta_incoherente(
             "el plan de 30gb queda en 27.735 pesos por mes", historial
+        ))
+
+    def test_bloquea_mezclar_precios_dni_de_personal_y_movistar(self):
+        personal = [_mensaje(1, 0, "soy de Personal")]
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "el de 30gb te queda en $34.680, con 70% off y 10gb de regalo", personal
+        ))
+        for respuesta in (
+            "el de 30gb te queda en $40.460, con 65% off",
+            "Personal tiene 65% de descuento",
+        ):
+            with self.subTest(respuesta=respuesta):
+                self.assertIn(
+                    "Movistar/Tuenti",
+                    main._motivo_respuesta_incoherente(respuesta, personal),
+                )
+
+        movistar = [_mensaje(1, 0, "soy de Movistar")]
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "el de 30gb te queda en $40.460, con 65% off y 10gb de regalo", movistar
+        ))
+        self.assertIn(
+            "Personal",
+            main._motivo_respuesta_incoherente(
+                "el de 30gb te queda en $34.680, con 70% off", movistar
+            ),
+        )
+
+    def test_bloquea_decir_que_personal_y_movistar_dni_valen_igual(self):
+        historial = [_mensaje(1, 0, "tengo una línea Movistar y otra Personal")]
+        self.assertIsNotNone(main._motivo_respuesta_incoherente(
+            "es lo mismo para las dos, tienen el mismo precio", historial
+        ))
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "Movistar tiene 65% y Personal 70%; ambas mantienen los 10gb de regalo", historial
         ))
 
     def test_bloquea_afirmaciones_comerciales_no_verificadas(self):

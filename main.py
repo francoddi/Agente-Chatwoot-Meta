@@ -1153,6 +1153,11 @@ NUNCA usar tabla de portabilidad para línea nueva.
 
 NUNCA crear planes inexistentes.
 
+ATENCIÓN — las tablas DNI ya NO son iguales: Movistar/Tuenti usan 65% (sección 28) y Personal
+usa 70% (sección 31). Los ejemplos generales de $40.460 / 65% que aparecen en otras secciones
+representan un cliente Movistar/Tuenti. NUNCA los copies para un cliente Personal: para Personal
+consultá siempre la sección 31 y usá sus importes de 70%.
+
 SIEMPRE que informes un precio (uno solo o toda la tabla) que tenga un beneficio asociado —el % OFF, los GB de regalo, lo que sea— mencionalo también. La gente lo valora mucho, no es un detalle opcional.
 
 IMPORTANTE: los precios de las tablas YA tienen el % OFF aplicado. $40.460 es lo que el cliente paga, no un precio al que todavía hay que restarle el descuento. Cuando mencionás el % OFF es para que el cliente entienda por qué el precio es tan bajo (y lo valore), NO es un cálculo que tengas que hacer vos ni un descuento adicional sobre ese número.
@@ -1362,17 +1367,17 @@ COMPANIA_ORIGEN = PERSONAL
 
 usar:
 
-4 GB → $20.997
-7 GB → $23.870
-10 GB → $30.345
-30 GB → $40.460
-50 GB → $46.529
+4 GB → $17.997
+7 GB → $20.460
+10 GB → $26.010
+30 GB → $34.680
+50 GB → $39.882
 
 El plan de 2 GB ya no existe para esta tabla — no ofrecerlo.
 
 PROMOCIÓN:
 
-65% OFF durante 6 meses.
+70% OFF durante 6 meses.
 
 +10 GB de regalo durante 6 meses, en todos los planes.
 
@@ -1506,7 +1511,7 @@ Si pregunta:
 
 mostrar la tabla correcta.
 
-Ejemplo:
+Ejemplo para Movistar/Tuenti DNI:
 
 "tenemos, todos ya con el 65% off aplicado
 
@@ -1517,6 +1522,9 @@ Ejemplo:
 50gb $46.529
 
 cual estabas viendo?"
+
+Si viene de Personal, NO uses esa tabla de ejemplo: mostrale la tabla Personal DNI de la
+sección 31, con 70% off y sus importes propios.
 
 (agregá la mención del GB de regalo solo si la tabla de ESE cliente específico lo tiene — no todas lo tienen, ver secciones 28-32)
 
@@ -2489,7 +2497,9 @@ RESPUESTA (mal, se queda corta):
 "no, es lo mismo"
 
 RESPUESTA (bien, cierra con avance):
-"no, es lo mismo para las dos: 65% off, el mismo precio en pesos y 10gb de regalo por 6 meses. querés que armemos el cambio de ambas?"
+"hay una diferencia: la línea de Movistar tiene 65% off y la de Personal 70% off. las dos
+mantienen 10gb de regalo por 6 meses. decime qué plan querés en cada una y te paso los dos
+precios exactos"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 56.1 SI DICE QUE LA PUBLICIDAD DECÍA OTRO % (ej: "vi que decía hasta 80% off")
@@ -4898,6 +4908,19 @@ def _companias_informadas_por_cliente(messages: list) -> set:
     return encontradas
 
 
+_PRECIOS_DNI_MOVISTAR_TUENTI_65 = ("20.997", "23.870", "30.345", "40.460", "46.529")
+_PRECIOS_DNI_PERSONAL_70 = ("17.997", "20.460", "26.010", "34.680", "39.882")
+
+
+def _menciona_alguno_de_los_precios(texto: str, precios: tuple[str, ...]) -> bool:
+    """Reconoce importes tanto con punto como con espacio de miles."""
+    for precio in precios:
+        patron = re.escape(precio).replace(r"\.", r"[.\s]")
+        if re.search(rf"(?<!\d){patron}(?!\d)", texto):
+            return True
+    return False
+
+
 def _mensajes_entrantes_pendientes(messages: list) -> list:
     """Mensajes del cliente posteriores a la última salida pública del bot/agente."""
     ordenados = sorted(messages, key=lambda m: m.get("id") or 0)
@@ -4976,6 +4999,30 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
         return f"volvió a preguntar la compañía aunque el cliente ya informó: {', '.join(sorted(companias))}"
 
     cliente_dijo_empresa = _cliente_planteo_empresa(messages)
+
+    # Personal DNI tiene una promo distinta de Movistar/Tuenti. Esta barrera evita que una
+    # respuesta generada con ejemplos viejos mezcle el 65% o la tabla anterior después de una
+    # actualización comercial. Se omite para Empresa, que tiene sus propias tablas.
+    if not cliente_dijo_empresa:
+        solo_personal = companias == {"personal"}
+        solo_movistar_tuenti = bool(companias) and companias <= {"movistar", "tuenti"}
+        if solo_personal and (
+            re.search(r"\b65\s*%", texto)
+            or _menciona_alguno_de_los_precios(texto, _PRECIOS_DNI_MOVISTAR_TUENTI_65)
+        ):
+            return "usó la promo o los precios de Movistar/Tuenti para Personal DNI"
+        if solo_movistar_tuenti and (
+            re.search(r"\b70\s*%", texto)
+            or _menciona_alguno_de_los_precios(texto, _PRECIOS_DNI_PERSONAL_70)
+        ):
+            return "usó la promo o los precios de Personal para Movistar/Tuenti DNI"
+        if "personal" in companias and companias & {"movistar", "tuenti"} and re.search(
+            r"\b(?:es|son|queda|quedan)\b.{0,25}\b(?:igual|iguales|lo mismo|mismo precio)\b|"
+            r"\b(?:igual|iguales|lo mismo|mismo precio)\b.{0,25}\b(?:ambas|las dos|los dos)\b",
+            texto,
+        ):
+            return "afirmó que Personal y Movistar/Tuenti DNI tienen el mismo precio"
+
     menciona_precio_concreto = re.search(
         r"\$\s*\d|\b(?:precio|abono|plan).{0,45}\d{1,3}[.\s]\d{3}\b|"
         r"\b\d{1,3}[.\s]\d{3}\s*(?:pesos|por mes)",
