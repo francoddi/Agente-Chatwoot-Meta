@@ -488,62 +488,66 @@ class ReglasDeNegocioTest(unittest.TestCase):
             [],
         )
 
-    def test_empresa_exige_cuit_valido_y_confirmacion_explicita_de_activo(self):
+    def test_empresa_exige_cuit_valido_y_categoria_fiscal(self):
         campos = {
             **self._ficha_consumidor_completa(),
             "Tipo de cliente": "Empresa",
             "CUIT": "27-30519335-1",
-            "CUIT activo declarado": "Sí",
         }
-        solo_dijo_monotributista = [
-            _mensaje(1, 0, "soy monotributista social"),
+        confirmo_categoria = [
+            _mensaje(1, 0, "soy monotributista social, mi CUIT es 27-30519335-1"),
         ]
         self.assertTrue(main._cuit_formato_valido(campos["CUIT"]))
-        self.assertIn(
-            "confirmación escrita del cliente de que el CUIT está activo",
-            main._campos_faltantes_derivacion(campos, solo_dijo_monotributista),
-        )
+        self.assertEqual(main._campos_faltantes_derivacion(campos, confirmo_categoria), [])
 
-        confirmo_activo = [
-            _mensaje(1, 0, "soy monotributista"),
-            _mensaje(2, 1, "tenés el CUIT activo actualmente?"),
-            _mensaje(3, 0, "sí, lo tengo activo"),
-        ]
-        self.assertEqual(main._campos_faltantes_derivacion(campos, confirmo_activo), [])
-
-    def test_empresa_rechaza_cuit_activo_sin_categoria_fiscal_admitida(self):
+    def test_empresa_rechaza_cuit_sin_categoria_fiscal_admitida(self):
         campos = {
             **self._ficha_consumidor_completa(),
             "Tipo de cliente": "Empresa",
             "CUIT": "27-30519335-1",
-            "CUIT activo declarado": "Sí",
         }
         messages = [
-            _mensaje(1, 1, "tenés el CUIT activo actualmente?"),
-            _mensaje(2, 0, "sí, está activo"),
+            _mensaje(1, 0, "lo quiero hacer con CUIT"),
         ]
         self.assertIn(
             "confirmación de que es monotributista o responsable inscripto",
             main._campos_faltantes_derivacion(campos, messages),
         )
 
-    def test_no_confunde_cuit_inactivo_o_dudoso_con_confirmacion(self):
-        for respuesta in (
-            "mi CUIT no está activo",
-            "no sé si mi CUIT está activo",
-            "creo que no está activo el CUIT",
-        ):
-            messages = [_mensaje(1, 0, respuesta)]
-            self.assertFalse(main._cliente_confirmo_cuit_activo(messages), respuesta)
+    def test_empresa_no_acepta_un_cuit_que_el_cliente_nunca_escribio(self):
+        campos = {
+            **self._ficha_consumidor_completa(),
+            "Tipo de cliente": "Empresa",
+            "CUIT": "27-30519335-1",
+        }
+        messages = [_mensaje(1, 0, "soy responsable inscripto")]
+        self.assertIn(
+            "CUIT del titular informado por el cliente",
+            main._campos_faltantes_derivacion(campos, messages),
+        )
 
     def test_no_confunde_negacion_con_categoria_empresa(self):
         for respuesta in (
             "no soy monotributista",
             "antes era responsable inscripto",
             "no sé si soy monotributista",
+            "y cuánto sale para monotributista?",
+            "qué planes tienen para responsable inscripta?",
+            "precio monotributista",
         ):
             messages = [_mensaje(1, 0, respuesta)]
             self.assertFalse(main._cliente_confirmo_condicion_empresa(messages), respuesta)
+
+    def test_reconoce_variantes_validas_de_categoria_empresa(self):
+        for respuesta in (
+            "soy monotributista",
+            "tengo monotributo social",
+            "soy responsable inscripta",
+            "soy RI",
+            "monotributista",
+        ):
+            messages = [_mensaje(1, 0, respuesta)]
+            self.assertTrue(main._cliente_confirmo_condicion_empresa(messages), respuesta)
 
     def test_negacion_de_empresa_no_bloquea_precio_consumidor_final(self):
         messages = [
@@ -556,14 +560,17 @@ class ReglasDeNegocioTest(unittest.TestCase):
             messages,
         ))
 
-    def test_mensaje_de_bloqueo_pide_categoria_y_cuit_activo_sin_tecnicismos(self):
+    def test_mensaje_de_bloqueo_pide_solo_categoria_fiscal(self):
         mensaje = main._mensaje_ficha_incompleta([
             "confirmación de que es monotributista o responsable inscripto",
-            "confirmación escrita del cliente de que el CUIT está activo",
         ])
         self.assertIn("monotributista o responsable inscripto", mensaje)
-        self.assertIn("CUIT activo", mensaje)
-        self.assertNotIn("confirmación escrita", mensaje)
+        self.assertNotIn("activo", mensaje.lower())
+
+    def test_prompt_no_pide_confirmar_estado_del_cuit(self):
+        self.assertNotIn("¿tenés el CUIT activo", main.SYSTEM_PROMPT)
+        self.assertNotIn("CUIT activo declarado", main.SYSTEM_PROMPT)
+        self.assertNotIn("CUIT_ACTIVO_CONFIRMADO", main.SYSTEM_PROMPT)
 
     def test_bloquea_garantia_no_verificada_sobre_cuit(self):
         historial = [
@@ -609,6 +616,11 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(respuesta, "respuesta válida")
         self.assertEqual(client.post.await_count, 2)
+        for llamada in client.post.await_args_list:
+            self.assertEqual(
+                llamada.kwargs["json"]["max_tokens"],
+                main.OPENROUTER_MAX_TOKENS,
+            )
 
     async def test_openrouter_no_reintenta_contenido_bloqueado(self):
         response = MagicMock()

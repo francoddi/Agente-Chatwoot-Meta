@@ -962,17 +962,16 @@ EMPRESA:
 - monotributista
 - responsable inscripto
 
-Monotributistas y responsables inscriptos utilizan la misma tabla Empresa, SIEMPRE que el
-CUIT esté activo. Tener un número de CUIT con formato válido o decir "soy monotributista" no
-demuestra por sí solo que esté activo: preguntalo expresamente antes de avanzar y aclarale que
-Camila hace la validación final al cargar el alta. Si el CUIT figura inactivo, la operación no
-puede salir con la tabla Empresa.
+Monotributistas y responsables inscriptos utilizan la misma tabla Empresa. Para derivar por
+Empresa tiene que quedar confirmado que el cliente pertenece a una de esas dos categorías y
+tiene que pasar su número de CUIT. Decir solamente "soy comerciante", "trabajo por mi cuenta"
+o "quiero precio de empresa" no alcanza: preguntale si es monotributista o responsable
+inscripto. Si no pertenece a ninguna de esas categorías o no tiene CUIT, corresponde
+Consumidor Final.
 
-NUNCA garantices que un CUIT está activo ni que una línea actualmente registrada como
-Consumidor Final puede pasarse a Empresa "sin ningún problema". No tenemos acceso al padrón
-fiscal desde esta conversación. Si el cliente cuenta que otra persona le dijo que no se puede,
-NO contradigas esa información como si tuvieras una verificación: explicá que depende de que el
-CUIT esté activo y de la validación final de Camila.
+NO le preguntes si el CUIT está activo, vigente o habilitado. El equipo humano comprueba eso
+después. Tampoco afirmes vos que está activo ni contradigas una restricción como si hubieras
+consultado un padrón fiscal: no tenemos acceso a esa verificación desde la conversación.
 
 DEFAULT A DNI — YA NO SE PREGUNTA DE ENTRADA (16/09/2026, a pedido explícito): en datos
 reales, 97.67% de las ventas son Consumidor Final/DNI y solo 2.33% son Empresa/CUIT. Preguntar
@@ -986,13 +985,12 @@ es no preguntar DE ENTRADA, antes de mostrar el primer precio.
 Cuándo SÍ corresponde considerar la tabla Empresa en cambio: si el cliente mismo lo trae —
 dice "soy monotributista", "es para mi empresa", "lo hago con CUIT", "soy responsable
 inscripto", o pregunta directamente si hay otro precio para monotributistas/empresas. Ahí
-confirmás primero que sea monotributista o responsable inscripto y que tenga el CUIT activo;
-recién entonces usás la tabla correcta con naturalidad (ver sección 20, ahora es reactivo, no
-de apertura). Si nunca lo menciona, seguís con Consumidor Final hasta el final — no hace falta
-confirmarlo aparte.
+confirmás que sea monotributista o responsable inscripto; recién entonces usás la tabla correcta
+con naturalidad (ver sección 20, ahora es reactivo, no de apertura). Si nunca lo menciona,
+seguís con Consumidor Final hasta el final — no hace falta confirmarlo aparte.
 
-- Confirma que es monotributista o responsable inscripto Y que tiene CUIT activo →
-  TIPO_CLIENTE = EMPRESA (es la misma tabla para ambas categorías, sujeta a validación final).
+- Confirma que es monotributista o responsable inscripto y tiene CUIT →
+  TIPO_CLIENTE = EMPRESA (es la misma tabla para ambas categorías).
 - Cualquier otro caso (no lo menciona) → TIPO_CLIENTE = CONSUMIDOR_FINAL, sin preguntar.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1001,9 +999,9 @@ confirmarlo aparte.
 
 Esto ya no se pregunta de apertura (ver sección 19). Pero si en cualquier momento el cliente
 menciona que es monotributista/empresa, dice que lo hace con CUIT, o pregunta si hay un precio
-distinto para eso, confirmá que sea monotributista o responsable inscripto y preguntale si su
-CUIT está activo. Los precios Empresa se pueden explicar como oferta, aclarando que están
-sujetos a la validación final del CUIT; no derives hasta que el cliente confirme que está activo.
+distinto para eso, confirmá que sea monotributista o responsable inscripto. Si solo dice
+"empresa" o "con CUIT", preguntá cuál de esas dos categorías le corresponde. No preguntes si el
+CUIT está activo: eso lo comprueba después el equipo humano.
 
 Ejemplo:
 
@@ -1011,14 +1009,14 @@ CLIENTE:
 "che, y para monotributistas hay otro precio?"
 
 RESPUESTA:
-"sí, para monotributistas o responsables inscriptos con CUIT activo el precio es distinto. lo
-tenés activo actualmente? después Camila hace la validación final al cargar el alta"
+"sí, para monotributistas o responsables inscriptos el precio es distinto. sos monotributista
+o responsable inscripto?"
 
 Otra forma, si todavía no mostraste ningún precio y el cliente ya aclaró que es con CUIT antes
 de que llegaras a mostrar nada:
 
-"ah, si sos monotributista o responsable inscripto y tenés el CUIT activo, te corresponde la
-tabla Empresa. te paso los precios para ese caso, sujetos a la validación final: [tabla Empresa]"
+"ah, si sos monotributista o responsable inscripto te corresponde la tabla Empresa. te paso
+los precios para ese caso: [tabla Empresa]"
 
 No utilizar siempre exactamente la misma frase.
 
@@ -1038,8 +1036,8 @@ Ejemplo:
 
 "te explico: dni es para persona física, la linea queda a tu nombre
 
-cuit es para monotributistas o responsables inscriptos con CUIT activo; se factura con ese
-CUIT y Camila valida que esté habilitado al cargar el alta — por eso el precio es distinto"
+cuit es para monotributistas o responsables inscriptos; se factura con ese CUIT — por eso el
+precio es distinto"
 
 También puede decirse en dos mensajes separados si queda más natural.
 
@@ -1080,7 +1078,7 @@ Si el cliente dice:
 ya sabés:
 
 COMPANIA = MOVISTAR
-TIPO_CLIENTE = EMPRESA PENDIENTE DE CONFIRMAR CUIT ACTIVO
+TIPO_CLIENTE = EMPRESA
 PLAN = 30GB
 
 No preguntar:
@@ -1089,9 +1087,9 @@ No preguntar:
 - categoría,
 - plan.
 
-Sí falta preguntar si tiene el CUIT activo. Podés mostrar el precio Empresa aclarando que aplica
-para monotributistas o responsables inscriptos con CUIT activo y está sujeto a la validación
-final de Camila, pero no iniciar el checklist ni derivar hasta que lo confirme.
+No hace falta volver a preguntar la categoría porque ya dijo que es monotributista. Mostrá el
+precio Empresa y, si quiere avanzar, pedí el CUIT junto con los demás datos. Nunca preguntes si
+el CUIT está activo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 24. RESPONDER TODA LA IDEA, NO CADA BURBUJA
@@ -1694,8 +1692,7 @@ Obtener:
 - número a portar
 - plan elegido
 - CUIT
-- confirmación explícita del cliente de que actualmente es monotributista o responsable
-  inscripto y que el CUIT está activo (Camila igualmente hace la validación final)
+- confirmación explícita del cliente de que es monotributista o responsable inscripto
 - foto de frente y dorso del DNI del titular de la línea (ver sección 54 — mismo criterio que
   Consumidor Final, aunque acá el dato de facturación sea el CUIT)
 - email
@@ -1752,11 +1749,9 @@ Empresa (en vez de DNI):
 
 "pasame el CUIT del titular de la línea, el nombre completo y el número que querés portar"
 
-En Empresa, antes de pedir las fotos y derivar, también tiene que quedar contestada esta
-pregunta: "¿tenés el CUIT activo actualmente?". No deduzcas que está activo porque el número
-tenga 11 dígitos, porque el cliente diga que es monotributista o porque el CUIT tenga un formato
-válido. Si confirma que sí, seguí aclarando que Camila realiza la validación final. Si dice que
-no está activo o no lo sabe, no prometas el alta ni armes la ficha todavía.
+En Empresa tiene que haber dicho expresamente que es monotributista o responsable inscripto y
+tiene que pasar el CUIT. No preguntes si está activo, vigente o habilitado: eso lo verifica el
+equipo humano después.
 
 Recién cuando ya tengas TODO lo anterior (nombre, DNI/CUIT, número a portar, email, localidad,
 provincia, dirección, código postal), como último paso del checklist, pedí la foto del DNI (ver
@@ -1901,8 +1896,6 @@ NOMBRE
 NUMERO_A_PORTAR si corresponde
 
 CUIT
-
-CUIT_ACTIVO_CONFIRMADO_POR_CLIENTE = SI
 
 FOTO_DNI (frente y dorso, del titular de la línea — ver sección 54, bloquea el handoff si falta)
 
@@ -2255,7 +2248,6 @@ Compañía actual: [COMPANIA]
 Número a portar: [NUMERO]
 Plan elegido: [PLAN]
 CUIT: [CUIT]
-CUIT activo declarado: Sí
 Fecha de nacimiento: [FECHA_NACIMIENTO]
 Email: [EMAIL]
 Localidad: [LOCALIDAD]
@@ -2264,10 +2256,6 @@ Dirección: [DIRECCION]
 Código postal: [CODIGO_POSTAL]"
 
 NO poner precio.
-
-La línea "CUIT activo declarado: Sí" SOLO se agrega si el cliente respondió expresamente que
-su CUIT está activo. No la inventes a partir de que dijo ser monotributista/responsable
-inscripto ni por el formato del número. Aunque figure "Sí", Camila realiza la validación final.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 51.1 SI PORTA MÁS DE UNA LÍNEA, LA ETIQUETA SIEMPRE ES "Número a portar" (singular)
@@ -2316,8 +2304,6 @@ Dirección: [DIRECCION]
 Código postal: [CODIGO_POSTAL]"
 
 Agregar DNI si Consumidor final, CUIT si Empresa (nunca los dos).
-Si es Empresa, agregar también "CUIT activo declarado: Sí" únicamente después de que el
-cliente lo haya confirmado expresamente; la validación final sigue correspondiendo a Camila.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 53. DESPUÉS DE LA FICHA
@@ -2752,18 +2738,17 @@ CLIENTE:
 Interpretación:
 
 COMPANIA = TUENTI
-TIPO = EMPRESA PENDIENTE DE CONFIRMAR CUIT ACTIVO
+TIPO = EMPRESA
 PLAN = 10GB
 
 RESPUESTA:
 
-"si tenés el CUIT activo, el de 10gb para monotributista te queda en $20.805 sin impuestos,
-sujeto a la validación final de Camila
+"el de 10gb para monotributista te queda en $20.805 sin impuestos
 
-lo tenés activo actualmente?"
+te suman 10gb durante 6 meses"
 
-No volver a preguntar compañía, categoría ni plan. La confirmación de CUIT activo sí es
-obligatoria antes del checklist y la derivación.
+No volver a preguntar compañía, categoría ni plan. Si quiere avanzar, pedir el CUIT con el
+resto de los datos, sin preguntarle si está activo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 63. EJEMPLO — PREGUNTA POR CUIT/EMPRESA (reactivo)
@@ -2777,11 +2762,11 @@ CLIENTE:
 
 ASESORA:
 
-"sí, para monotributistas o responsables inscriptos con CUIT activo el precio es distinto. lo
-tenés activo actualmente? después Camila hace la validación final al cargar el alta"
+"sí, para monotributistas o responsables inscriptos el precio es distinto. sos monotributista
+o responsable inscripto?"
 
-Corto — y recién ahí, reactivo, se aclara la diferencia y se confirma el CUIT activo (ver
-sección 19: ya no se pregunta esto de entrada).
+Corto — y recién ahí, reactivo, se confirma la categoría (ver sección 19: ya no se pregunta
+esto de entrada).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 64. EJEMPLO — YA ACEPTÓ
@@ -3066,6 +3051,10 @@ CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+# Las respuestas son mensajes breves de WhatsApp. Sin este límite, OpenRouter toma el máximo
+# del modelo (65.536 tokens) y puede rechazar la solicitud por crédito aunque una respuesta real
+# necesite apenas una fracción.
+OPENROUTER_MAX_TOKENS = int(os.getenv("OPENROUTER_MAX_TOKENS", "8192"))
 PAUSE_LABEL = os.getenv("PAUSE_LABEL", "bot_off")
 # Etiqueta que se agrega sola a la conversación cuando el bot deriva al cliente a Camila
 # (se detecta porque el mensaje que manda contiene el link de NUMERO_CAMILA).
@@ -3897,7 +3886,7 @@ def _normalizar_control(texto: str) -> str:
 
 
 def _cuit_formato_valido(cuit: str) -> bool:
-    """Valida únicamente estructura y dígito verificador; NO demuestra estado fiscal activo."""
+    """Valida estructura y dígito verificador del CUIT ingresado."""
     digitos = re.sub(r"\D", "", cuit or "")
     if len(digitos) != 11:
         return False
@@ -3944,60 +3933,12 @@ def _es_contexto_postventa(messages: list) -> bool:
     return any(re.search(patron, texto) for patron in patrones)
 
 
-def _cliente_confirmo_cuit_activo(messages: list) -> bool:
-    """True sólo ante una confirmación explícita posterior a una pregunta sobre CUIT activo."""
-    ordenados = sorted(
-        [m for m in messages if not m.get("private")], key=lambda m: m.get("id") or 0
-    )
-    pregunta_pendiente = False
-    for message in ordenados:
-        texto = _normalizar_control(message.get("content") or "")
-        if message.get("message_type") == 1:
-            hizo_pregunta = bool(
-                "cuit" in texto and re.search(r"\b(?:activo|vigente|habilitado)\b", texto)
-                and ("?" in (message.get("content") or "")
-                     or re.search(r"\b(?:tenes|esta|figura|contas)\b", texto))
-            )
-            if hizo_pregunta:
-                pregunta_pendiente = True
-            continue
-        if message.get("message_type") != 0:
-            continue
-        declaracion_negativa_o_dudosa = bool(re.search(
-            r"\b(?:no\s+se|no\s+sé|no\s+estoy\s+segur\w*|dudo|creo\s+que\s+no)\b"
-            r".{0,35}\b(?:cuit|activo)\b|"
-            r"\bcuit\b.{0,30}\b(?:no\s+(?:esta|está|figura)\s+activo|inactivo|"
-            r"dado\s+de\s+baja|vencido)\b|"
-            r"\bno\s+tengo\b.{0,20}\bcuit\b.{0,15}\bactivo\b",
-            texto,
-        ))
-        if not declaracion_negativa_o_dudosa and re.search(
-            r"\b(?:mi|el)\s+cuit\b.{0,25}\b(?:esta|lo tengo|figura)\b.{0,15}"
-            r"\b(?:activo|vigente|habilitado)\b|"
-            r"\b(?:tengo|cuento con)\b.{0,15}\bcuit\b.{0,15}\b(?:activo|vigente|habilitado)\b",
-            texto,
-        ):
-            return True
-        if pregunta_pendiente:
-            respuesta_simple = re.sub(r"[^a-z0-9\s]", " ", texto)
-            respuesta_simple = re.sub(r"\s+", " ", respuesta_simple).strip()
-            if re.fullmatch(
-                r"(?:si(?: claro)?(?: esta activo| lo tengo activo)?|"
-                r"si (?:activo|vigente|habilitado)|"
-                r"esta activo|lo tengo activo|activo|correcto|afirmativo)",
-                respuesta_simple,
-            ):
-                return True
-            # La primera respuesta real a la pregunta fue ambigua o negativa: no reutilizar un
-            # "sí" posterior que puede referirse a otra cosa.
-            if texto:
-                pregunta_pendiente = False
-    return False
-
-
 def _cliente_confirmo_condicion_empresa(messages: list) -> bool:
     """Empresa sólo corresponde si el cliente declaró una categoría fiscal admitida."""
-    categoria = r"(?:monotributista(?:\s+social)?|responsable\s+inscripto)"
+    categoria = (
+        r"(?:monotributista(?:\s+social)?|monotributo(?:\s+social)?|"
+        r"responsable\s+inscript[oa]|ri)"
+    )
     for message in messages:
         if message.get("message_type") != 0 or message.get("private"):
             continue
@@ -4011,7 +3952,26 @@ def _cliente_confirmo_condicion_empresa(messages: list) -> bool:
             texto,
         ):
             continue
-        return True
+        declaracion = bool(re.search(
+            rf"\b(?:soy|somos|estoy inscript[oa] como|me inscribi como)\b"
+            rf".{{0,20}}\b{categoria}\b|"
+            rf"\b(?:tengo|tenemos|cuento con|contamos con)\b.{{0,15}}"
+            rf"\b(?:monotributo(?:\s+social)?|cuit como {categoria})\b",
+            texto,
+        ))
+        respuesta_directa = bool(re.fullmatch(
+            rf"(?:soy\s+)?{categoria}[\s.!]*",
+            texto,
+        ))
+        categoria_con_intencion = bool(
+            "?" not in (message.get("content") or "")
+            and re.search(
+                rf"^{categoria}\b.{{0,35}}\b(?:quiero|necesito|busco|el de|plan)\b",
+                texto,
+            )
+        )
+        if declaracion or respuesta_directa or categoria_con_intencion:
+            return True
     return False
 
 
@@ -4023,18 +3983,31 @@ def _cliente_planteo_empresa(messages: list) -> bool:
             continue
         texto = _normalizar_control(message.get("content") or "")
         if not re.search(
-            r"\b(?:empresa|cuit|monotributista|monotributo|responsable inscripto)\b",
+            r"\b(?:empresa|cuit|monotributista|monotributo|responsable inscript[oa]|ri)\b",
             texto,
         ):
             continue
         descarta_empresa = bool(re.search(
             r"\b(?:no|sin)\b.{0,20}\b(?:empresa|cuit|monotributista|monotributo|"
-            r"responsable inscripto)\b|"
+            r"responsable inscript[oa]|ri)\b|"
             r"\b(?:dni|consumidor final)\b.{0,20}\b(?:no empresa|sin cuit)\b",
             texto,
         ))
         estado = not descarta_empresa
     return estado
+
+
+def _cuit_escrito_por_cliente(cuit: str, messages: list) -> bool:
+    """Evita derivar como Empresa con un CUIT inferido o inventado por el modelo."""
+    digitos = re.sub(r"\D", "", cuit or "")
+    if len(digitos) != 11:
+        return False
+    return any(
+        message.get("message_type") == 0
+        and not message.get("private")
+        and digitos in re.sub(r"\D", "", message.get("content") or "")
+        for message in messages
+    )
 
 
 def _campos_faltantes_derivacion(campos: dict, messages: list | None = None) -> list:
@@ -4086,16 +4059,13 @@ def _campos_faltantes_derivacion(campos: dict, messages: list | None = None) -> 
         cuit = campos.get("CUIT", "")
         if not _cuit_formato_valido(cuit):
             faltantes.append("CUIT válido")
-        declarado = _normalizar_control(campos.get("CUIT activo declarado", ""))
-        if declarado not in {"si", "sí"}:
-            faltantes.append("confirmación de CUIT activo")
         if messages is not None:
+            if not _cuit_escrito_por_cliente(cuit, messages):
+                faltantes.append("CUIT del titular informado por el cliente")
             if not _cliente_confirmo_condicion_empresa(messages):
                 faltantes.append(
                     "confirmación de que es monotributista o responsable inscripto"
                 )
-            if not _cliente_confirmo_cuit_activo(messages):
-                faltantes.append("confirmación escrita del cliente de que el CUIT está activo")
 
     # Mantener orden estable y no repetir mensajes equivalentes.
     return list(dict.fromkeys(faltantes))
@@ -4105,26 +4075,10 @@ def _mensaje_ficha_incompleta(faltantes: list) -> str:
     falta_categoria = any(
         "monotributista o responsable inscripto" in campo for campo in faltantes
     )
-    falta_activo = any(
-        "cuit" in _normalizar_control(campo) and "activo" in _normalizar_control(campo)
-        for campo in faltantes
-    )
-    if falta_categoria and falta_activo:
-        return (
-            "antes de avanzar confirmame por favor: ¿sos monotributista o responsable inscripto "
-            "y tenés el CUIT activo actualmente? Camila hace la validación final al cargar el alta"
-        )
     if falta_categoria:
         return (
             "antes de avanzar necesito confirmar si sos monotributista o responsable inscripto. "
-            "los planes Empresa aplican únicamente a esas categorías y Camila hace la validación "
-            "final al cargar el alta"
-        )
-    if falta_activo:
-        return (
-            "antes de avanzar necesito confirmar algo: ¿tenés el CUIT activo actualmente? "
-            "los planes Empresa son para monotributistas o responsables inscriptos con CUIT "
-            "activo, y Camila hace la validación final cuando carga el alta"
+            "los planes Empresa aplican únicamente a esas dos categorías"
         )
     visibles = [campo for campo in faltantes if campo not in {"tipo de portabilidad", "tipo de cliente"}]
     detalle = ", ".join(visibles[:5] or faltantes[:5])
@@ -4974,21 +4928,6 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
     if cliente_dijo_empresa and not companias and menciona_precio_concreto:
         return "dio un precio de Empresa antes de conocer la compañía de origen"
 
-    cuit_activo_confirmado = _cliente_confirmo_cuit_activo(messages)
-    if cliente_dijo_empresa and not cuit_activo_confirmado and menciona_precio_concreto:
-        pregunta_y_aclara = (
-            "cuit activo" in texto
-            and ("?" in respuesta or "validacion final" in texto or "camila" in texto)
-        )
-        if not pregunta_y_aclara:
-            return "ofreció precio Empresa sin confirmar CUIT activo ni aclarar la validación final"
-    if cliente_dijo_empresa and not cuit_activo_confirmado and re.search(
-        r"\bpasame\b.{0,90}\b(?:cuit|nombre completo|numero)\b|"
-        r"\bpara avanzar\b.{0,80}\b(?:cuit|datos|numero)\b",
-        texto,
-    ):
-        return "empezó el checklist Empresa sin confirmar antes que el CUIT esté activo"
-
     if "cuit" in texto and re.search(
         r"\blo que te dijeron no es correcto\b|"
         r"\blo hacemos todo el tiempo\b|"
@@ -5064,7 +5003,11 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
     }
-    body = {"model": OPENROUTER_MODEL, "messages": messages}
+    body = {
+        "model": OPENROUTER_MODEL,
+        "messages": messages,
+        "max_tokens": OPENROUTER_MAX_TOKENS,
+    }
     ultimo_error = None
     for intento in range(1, intentos + 1):
         try:
@@ -5402,9 +5345,9 @@ _PEDIDO_REVISION = (
     "ningún otro texto. Una consulta por un chip ya gestionado, seguimiento de envío, activación "
     "o datos que el cliente dice haber pasado a otra asesora es POSTVENTA y NUNCA es una venta "
     "nueva, aunque haya enviado fotos del DNI. En Empresa también tiene que haber confirmado por "
-    "escrito que es monotributista o responsable inscripto y que su CUIT está activo; Camila hará "
-    "la validación final. En CUALQUIER otro caso (falta algún dato, no quiere avanzar, ya es "
-    "cliente de Claro, es prepago, es postventa, etc.) respondé ÚNICAMENTE: NO"
+    "escrito que es monotributista o responsable inscripto y tiene que haber pasado su CUIT; el "
+    "equipo humano revisa después su estado. En CUALQUIER otro caso (falta algún dato, no quiere "
+    "avanzar, ya es cliente de Claro, es prepago, es postventa, etc.) respondé ÚNICAMENTE: NO"
 )
 
 
