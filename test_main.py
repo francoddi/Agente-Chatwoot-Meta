@@ -197,6 +197,67 @@ class ReglasDeNegocioTest(unittest.TestCase):
         }
         self.assertEqual(main._estado_fotos_dni([_mensaje(1, 0, attachments=[pdf])]), 2)
 
+    def test_detecta_variantes_de_foto_pendiente_solo_despues_de_pedirla(self):
+        pedido = _mensaje(1, 1, "para cerrar mandame foto del frente y dorso del DNI")
+        variantes = (
+            "no lo tengo a mano",
+            "ahora no tengo el DNI conmigo",
+            "no la tengo ahora",
+            "no las puedo mandar desde el teléfono",
+            "prefiero no mandar fotos por acá",
+            "te las paso más tarde",
+            "se las mando a Camila",
+            "se las paso a tu jefa",
+            "no me deja adjuntar las imágenes",
+            "mejor termino esto presencial",
+        )
+        for texto in variantes:
+            with self.subTest(texto=texto):
+                self.assertTrue(main._cliente_dejo_foto_dni_pendiente([
+                    pedido,
+                    _mensaje(2, 0, texto),
+                ]))
+
+        self.assertFalse(main._cliente_dejo_foto_dni_pendiente([
+            _mensaje(1, 0, "no lo tengo a mano"),
+        ]))
+        self.assertFalse(main._cliente_dejo_foto_dni_pendiente([
+            pedido,
+            _mensaje(2, 0, "ok, ahora las busco"),
+        ]))
+        self.assertFalse(main._cliente_dejo_foto_dni_pendiente([
+            pedido,
+            _mensaje(2, 0, "no tengo problema, ya te las mando"),
+        ]))
+
+    def test_fotos_completas_tienen_prioridad_sobre_mensaje_anterior_de_espera(self):
+        messages = [
+            _mensaje(1, 1, "mandame foto del frente y dorso del DNI"),
+            _mensaje(2, 0, "te las paso más tarde"),
+            _mensaje(3, 0, attachments=[
+                _imagen("dni-frente", 101),
+                _imagen("dni-dorso", 102),
+            ]),
+        ]
+        self.assertFalse(main._cliente_dejo_foto_dni_pendiente(messages))
+
+    def test_aviso_de_foto_pendiente_se_inserta_antes_de_la_ficha(self):
+        respuesta = (
+            "perfecto, ya registré tus datos\n---\n"
+            "Hola Camila, quiero avanzar con una portabilidad.\nNombre: Ana"
+        )
+        actualizada = main._agregar_aviso_foto_pendiente(respuesta)
+        parte_publica, ficha = actualizada.split("Hola Camila, quiero avanzar", 1)
+        self.assertIn("Camila", parte_publica)
+        self.assertIn("foto del DNI", parte_publica)
+        self.assertIn(main.NUMERO_CAMILA, parte_publica)
+        self.assertIn("Nombre: Ana", ficha)
+
+    def test_prompt_permite_derivar_si_la_foto_queda_pendiente(self):
+        self.assertIn("PENDIENTE_CON_CAMILA", main.SYSTEM_PROMPT)
+        self.assertNotIn("OBLIGATORIA — BLOQUEA EL HANDOFF", main.SYSTEM_PROMPT)
+        self.assertNotIn("NO se deriva a Camila (no se genera la", main.SYSTEM_PROMPT)
+
     def test_filtra_el_razonamiento_interno_observado(self):
         self.assertTrue(main._tiene_razonamiento_filtrado(
             "**Validating Current Status**\nThe user has supplied the information."
@@ -674,6 +735,75 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
                 _ficha_consumidor_completa(),
                 [],
             )
+
+    async def test_registro_con_negativa_explicita_deja_foto_pendiente(self):
+        mensajes = [
+            _mensaje(1, 1, "para cerrar mandame foto del frente y dorso del DNI"),
+            _mensaje(2, 0, "no lo tengo a mano, se las paso a Camila"),
+        ]
+        sheets = AsyncMock(return_value=True)
+        notify = AsyncMock()
+        label = AsyncMock(return_value=True)
+        with (
+            patch.object(main, "_verificar_fotos_dni", AsyncMock(return_value=("", ""))),
+            patch.object(main, "_get_contact_phone", AsyncMock(return_value="+5492200000000")),
+            patch.object(main, "log_to_google_sheets", sheets),
+            patch.object(main, "notify_camila_carga_sheets", notify),
+            patch.object(main, "add_conversation_label", label),
+        ):
+            await main._registrar_derivacion_completa(
+                12,
+                {**_ficha_consumidor_completa(), "Fecha de nacimiento": "01/01/1990"},
+                mensajes,
+            )
+
+        self.assertEqual(sheets.await_args.args[2], "")
+        self.assertEqual(sheets.await_args.args[3:5], ("", ""))
+        self.assertTrue(sheets.await_args.kwargs["foto_dni_pendiente"])
+        self.assertTrue(notify.await_args.kwargs["foto_dni_pendiente"])
+        label.assert_awaited_once_with(12, main.DERIVADO_LABEL)
+
+    async def test_sheets_marca_ambas_fotos_pendientes_con_camila(self):
+        append = AsyncMock(return_value="Hoja 1!A10:V10")
+        with (
+            patch.object(main, "GOOGLE_SHEETS_CREDENTIALS_JSON", "{}"),
+            patch.object(main, "GOOGLE_SHEETS_SPREADSHEET_ID", "planilla"),
+            patch.object(main, "_pares_numero_telefono_existentes", AsyncMock(return_value=set())),
+            patch.object(main, "append_google_sheets_row", append),
+            patch.object(main, "_forzar_links_visibles", AsyncMock()),
+        ):
+            ok = await main.log_to_google_sheets(
+                _ficha_consumidor_completa(),
+                "+5492200000000",
+                foto_dni_pendiente=True,
+            )
+        self.assertTrue(ok)
+        row = append.await_args.args[0]
+        self.assertEqual(row[8], "Pendiente con Camila")
+        self.assertEqual(row[9], "Pendiente con Camila")
+
+    async def test_registro_con_una_cara_conserva_la_foto_recibida(self):
+        mensajes = [
+            _mensaje(1, 1, "mandame foto del frente y dorso del DNI"),
+            _mensaje(2, 0, attachments=[_imagen("dni-frente", 101)]),
+            _mensaje(3, 0, "el dorso te lo mando después a Camila"),
+        ]
+        sheets = AsyncMock(return_value=True)
+        with (
+            patch.object(main, "_verificar_fotos_dni",
+                         AsyncMock(return_value=("dni-frente", ""))),
+            patch.object(main, "_get_contact_phone", AsyncMock(return_value="+5492200000000")),
+            patch.object(main, "log_to_google_sheets", sheets),
+            patch.object(main, "notify_camila_carga_sheets", AsyncMock()),
+            patch.object(main, "add_conversation_label", AsyncMock(return_value=True)),
+        ):
+            await main._registrar_derivacion_completa(
+                12,
+                _ficha_consumidor_completa(),
+                mensajes,
+            )
+        self.assertEqual(sheets.await_args.args[3:5], ("dni-frente", ""))
+        self.assertTrue(sheets.await_args.kwargs["foto_dni_pendiente"])
 
     async def test_postventa_no_se_registra_aunque_tenga_fotos(self):
         mensajes = [

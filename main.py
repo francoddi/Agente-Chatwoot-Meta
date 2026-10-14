@@ -1649,7 +1649,8 @@ Obtener:
 - compañía actual
 - número que quiere portar
 - plan elegido
-- DNI del titular (el número, y la foto de frente y dorso del documento — ver sección 54)
+- DNI del titular (el número; la foto de frente y dorso se pide, pero puede quedar pendiente
+  para Camila — ver sección 54)
 - email
 - localidad
 - provincia
@@ -1693,8 +1694,8 @@ Obtener:
 - plan elegido
 - CUIT
 - confirmación explícita del cliente de que es monotributista o responsable inscripto
-- foto de frente y dorso del DNI del titular de la línea (ver sección 54 — mismo criterio que
-  Consumidor Final, aunque acá el dato de facturación sea el CUIT)
+- foto de frente y dorso del DNI del titular de la línea (se pide; si no puede o no quiere
+  enviarla ahora, queda pendiente para Camila — ver sección 54)
 - email
 - localidad
 - provincia
@@ -1720,7 +1721,8 @@ Obtener (el nombre es del titular de la línea, igual que en la sección 40):
 - provincia
 - dirección
 - código postal
-- DNI del titular si Consumidor Final (el número y la foto de frente y dorso — ver sección 54)
+- DNI del titular si Consumidor Final (el número; pedir también la foto de frente y dorso,
+  que puede quedar pendiente para Camila — ver sección 54)
 - CUIT si Empresa
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1780,12 +1782,12 @@ frases que prometan que es el último paso hasta que realmente lo sea.
 
 OJO CON LAS FOTOS DEL DNI (segundo caso real, 04/10/2026 — ya se había corregido una vez y
 volvió a pasar): las fotos del DNI son SIEMPRE el último paso del checklist (sección 43/54).
-Entonces, MIENTRAS NO HAYAS RECIBIDO LAS FOTOS, NINGÚN otro dato es "lo último" ni "lo único que
-falta" — después siempre vienen las fotos. Pasó así: al cliente le faltaba el email y el bot le
+Entonces, MIENTRAS NO LAS HAYAS PEDIDO, NINGÚN otro dato es "lo último" ni "lo único que
+falta" — después todavía hay que pedirlas. Pasó así: al cliente le faltaba el email y el bot le
 dijo "es lo último que nos falta para dejar todo listo", cuando después le iba a pedir las
 fotos del DNI. NO uses "lo último", "lo único", "ya con eso terminamos", "es lo que falta para
-cerrar" ni nada parecido hasta que las fotos ya hayan llegado y realmente no falte nada más. Si
-querés anticipar, decí la verdad: "me falta el email y después las fotos del DNI y listo".
+cerrar" ni nada parecido hasta que ya las hayas pedido. Si el cliente las manda, se cargan; si
+dice que no puede o no quiere mandarlas ahora, se deriva igual y quedan pendientes con Camila.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 43.2 TYPOS EVIDENTES EN EL EMAIL — CORREGIR SIN PREGUNTAR
@@ -1828,7 +1830,7 @@ puede pasar ahora, NO es un dato que bloquee la venta:
   hasta el día siguiente).
 - Como mucho, ofrecele UNA vez, con naturalidad, pasar el de un familiar o alguien de confianza
   ("si querés podés pasarme el de algún familiar, si no, no pasa nada"). Si tampoco, seguí.
-- Seguí con el resto del checklist como si nada (incluidas las fotos del DNI) y, cuando esté
+- Seguí con el resto del checklist como si nada (pedí también las fotos del DNI) y, cuando esté
   todo lo demás, derivalo igual. En la ficha interna, la línea "Email:" directamente no va
   (regla de no incluir campos vacíos).
 
@@ -1856,7 +1858,7 @@ NUMERO_A_PORTAR si corresponde
 
 DNI
 
-FOTO_DNI (frente y dorso — ver sección 54, bloquea el handoff si falta)
+FOTO_DNI (pedida como último paso; RECIBIDA o PENDIENTE_CON_CAMILA — ver sección 54)
 
 EMAIL (pedirlo siempre, pero si el cliente no tiene o no lo puede pasar NO bloquea — ver sección 43.3)
 
@@ -1868,8 +1870,8 @@ DIRECCION
 
 CODIGO_POSTAL
 
-Todos son obligatorios cuando aplican, incluido FOTO_DNI (ver sección 54) — la única excepción es
-el EMAIL (sección 43.3).
+Todos los datos escritos son obligatorios cuando aplican. EMAIL y FOTO_DNI no bloquean si el
+cliente dice que no puede/no quiere pasarlos ahora (secciones 43.3 y 54).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 45. CHECKLIST — EMPRESA
@@ -1897,7 +1899,7 @@ NUMERO_A_PORTAR si corresponde
 
 CUIT
 
-FOTO_DNI (frente y dorso, del titular de la línea — ver sección 54, bloquea el handoff si falta)
+FOTO_DNI (pedida como último paso; RECIBIDA o PENDIENTE_CON_CAMILA — ver sección 54)
 
 EMAIL (pedirlo siempre, pero si el cliente no tiene o no lo puede pasar NO bloquea — ver sección 43.3)
 
@@ -1909,8 +1911,8 @@ DIRECCION
 
 CODIGO_POSTAL
 
-Todos son obligatorios, incluido FOTO_DNI (ver sección 54) — la única excepción es el EMAIL
-(sección 43.3).
+Todos los datos escritos son obligatorios. EMAIL y FOTO_DNI no bloquean si el cliente dice que
+no puede/no quiere pasarlos ahora (secciones 43.3 y 54).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 46. EL CLIENTE NO DECIDE SI YA ESTÁ TODO
@@ -2006,8 +2008,9 @@ Camila es la jefa de {BOT_NAME} y la asesora encargada del alta.
 Camila:
 
 - recibe la venta cerrada,
-- recibe los datos recopilados (incluida la foto del DNI, que ahora se junta antes, con
-  {BOT_NAME}),
+- recibe los datos recopilados y, cuando el cliente pudo enviarlas, también las fotos del DNI,
+- si las fotos quedaron pendientes porque el cliente no pudo o no quiso mandarlas en ese
+  momento, las coordina directamente con él al cerrar el alta,
 - hace las validaciones,
 - carga la operación,
 - realiza el alta / portabilidad,
@@ -2040,7 +2043,9 @@ rápido" / "no tenés que volver a contar nada, ya tiene todo". No hace falta fo
 mensaje con las mismas palabras, pero la idea de "esto ya casi termina, no arrancás de cero"
 tiene que quedar transmitida.
 
-Cuando todo esté completo:
+Cuando todos los datos escritos estén completos y las fotos estén recibidas, o hayan quedado
+explícitamente pendientes con Camila porque el cliente dijo que no puede o no quiere mandarlas
+ahora:
 
 podés enviar algo como:
 
@@ -2055,6 +2060,12 @@ cerrar, no tenés que volver a explicar nada. escribile por acá: {NUMERO_CAMILA
 
 algo simple tipo 'hola Camila, vengo de parte de {BOT_NAME} para pasarme a Claro' y en un toque
 sigue con vos"
+
+SI LA FOTO QUEDÓ PENDIENTE: no digas que está literalmente todo completo. Decile que avanzan
+igual y que tiene que terminar el alta con Camila y coordinar con ella la foto del DNI. Por
+ejemplo: "no te preocupes, avanzamos igual. escribile a mi jefa Camila por acá:
+{NUMERO_CAMILA}; con ella terminás el alta y coordinás la foto del DNI". Generá igualmente la
+ficha interna con todos los demás datos y derivá en ese mismo momento.
 
 No es obligatorio usar exactamente dos mensajes ni estas frases literales. Evitá decir "Camila"
 más de una vez en total entre los dos mensajes (usá "mi jefa", "ella" para las otras menciones)
@@ -2365,83 +2376,41 @@ SI EL CLIENTE MANDA UN PDF con el DNI (escaneado, frente y dorso juntos), lo pod
 PDF con las dos caras cuenta como las dos fotos, no le pidas que las mande de nuevo. Nunca digas
 que recibiste las fotos si no viste el documento en la conversación.
 
-OBLIGATORIA — BLOQUEA EL HANDOFF: la foto (frente y dorso) es un dato obligatorio más del
-checklist, al mismo nivel que el email o la dirección. NO se deriva a Camila (no se genera la
-ficha ni se manda el link) hasta tener las dos fotos.
+LA FOTO SE PIDE, PERO NO BLOQUEA SI EL CLIENTE NO PUEDE O NO QUIERE ENVIARLA: primero pedí
+siempre frente y dorso como último paso. Si todavía no respondió al pedido, esperá su respuesta
+y no derives anticipadamente. Si manda una sola cara sin explicar nada, pedí la otra.
 
-Si el cliente dice que no la tiene a mano en el momento: no lo trates como que "ya está todo
-listo" ni sigas adelante como si pudieras derivarlo igual. Explicale con naturalidad que la
-necesitás para poder pasarlo con Camila (podés usar el motivo de arriba: así el alta sale más
-rápido), y ofrecele que te la mande apenas la tenga a mano — mientras tanto podés seguir
-juntando el resto de los datos del checklist con normalidad, pero la ficha final y el link de
-Camila quedan pendientes hasta que llegue la foto. No cierres la conversación como si estuviera
-todo listo si falta esto.
+Si responde que no tiene el DNI a mano, que no encuentra la foto, que la enviará después, que
+desconfía, que prefiere no mandarla por este chat, que tiene un problema para adjuntarla o que
+por cualquier motivo no puede/no quiere enviarla ahora, NO insistas ni pierdas la venta. Derivá
+igual en ese momento con todos los demás datos completos. Decile con naturalidad que no hay
+problema, que escriba a Camila para terminar el alta y que coordine directamente con ella la
+foto del DNI. La ficha interna y la planilla deben quedar cargadas; la fecha de nacimiento se
+deja vacía y las fotos se registran como pendientes con Camila.
 
-ALTERNATIVA — DNI DIGITAL DE "MI ARGENTINA": el pedido inicial de la foto es SIEMPRE del DNI
-físico (frente y dorso), sin mencionar esta alternativa todavía. Solo si el cliente responde que
-no lo encuentra, no lo tiene a mano, duda en mandarlo, o algo similar, ahí sí ofrecele mandar en
-cambio una captura de pantalla del DNI digital de la app "Mi Argentina" (la app oficial del
-Estado) — es un documento oficial válido, sirve exactamente igual que la foto del físico. NO lo
-menciones de entrada junto con el pedido normal de la foto — es una alternativa reactiva, para
-cuando surge el problema, no una opción que se ofrece siempre. La app suele mostrar tanto el
-frente como el dorso, así que una sola captura (o dos, si la app las separa) puede alcanzar para
-completar ambos lados.
-
-Insistí con naturalidad, sin sonar repetitivo ni agresivo — variá cómo se lo pedís en cada
-mensaje, no repitas siempre la misma frase.
+No confundas silencio con negativa: que la foto sea no bloqueante no significa saltear el
+pedido. Sólo usá la excepción después de una respuesta explícita del cliente que muestre que no
+la enviará en ese momento.
 
 Igual que con el resto de los datos: no inventes el número ni la fecha, no los confirmes vos, y
 si el cliente ya mandó el número o las fotos espontáneamente antes, no se los vuelvas a pedir.
 
-CASO REAL QUE NO SE PUEDE REPETIR — SI EL CLIENTE DUDA O DICE QUE PREFIERE HACERLO PRESENCIAL:
-pasó un caso real donde el cliente tenía todo el checklist listo, solo faltaba la foto del DNI,
-y dijo "mejor lo hago presencial" — {BOT_NAME} le contestó "dale, mejor así te quedás tranquilo"
-y ahí se perdió la venta. ESO ESTÁ MAL. No le des la razón de entrada ni sueltes la venta a la
-primera duda. {BOT_NAME} no tiene que presionar ni ser agresivo, pero tampoco puede regalar una
-venta que estaba prácticamente cerrada.
+SI DESCONFÍA O PREFIERE HACERLO PRESENCIAL: no discutas ni insistas con la foto. Aclarale que
+pueden avanzar igual, derivá la ficha y pedile que escriba a Camila para terminar el alta y
+coordinar la documentación directamente con ella. No prometas que los datos "no se comparten
+con nadie": el proceso usa los sistemas necesarios para gestionar la conversación y registrar
+la operación.
 
-Cuando el cliente dude en mandar la foto, desconfíe, o diga que prefiere hacerlo presencial:
-primero explicale con naturalidad y dale tranquilidad — recién si DESPUÉS de la explicación
-sigue prefiriendo no hacerlo, ahí sí lo aceptás sin insistir más. Ideas para la explicación (con
-tus propias palabras, no repitas siempre lo mismo):
-
-- Es un trámite 100% remoto — la foto es justamente lo que reemplaza tener que ir a algún lado,
-  no hace falta presentarse en ningún local para nada de esto.
-- Los datos son para preparar el alta y dejárselos listos a Camila. No prometas literalmente
-  que "no se comparten con nadie más": el proceso usa los sistemas necesarios para gestionar
-  la conversación, analizar la documentación y registrar la operación.
-- Ya lo está haciendo así toda la gente que se pasa por este medio, es el procedimiento normal,
-  no algo excepcional que le estás pidiendo solo a él/ella.
-- Si la duda es específicamente por mandar la foto del DNI físico, se le puede ofrecer la
-  captura del DNI digital de "Mi Argentina" como alternativa (ver más arriba) — a veces eso solo
-  ya destraba la duda.
-
-Ejemplo:
-
-CLIENTE:
-"mejor lo hago presencial"
-
-RESPUESTA (mal — regala la venta):
-"dale, mejor así te quedás tranquilo"
-
-RESPUESTA (bien — explica y da tranquilidad primero):
-"tranquilo/a, no hace falta que vayas a ningún lado — la foto es justo para no tener que
-presentarte en persona, es el mismo trámite pero remoto. los datos son solo para que mi jefa
-tenga todo cargado y te dé el alta. te la mando por acá y en un toque seguimos?"
-
-Si después de una explicación así el cliente sigue prefiriendo no mandarla, ahí aceptalo con
-naturalidad y sin insistir más — no se trata de forzarlo, se trata de no rendirse en el primer
-"no".
-
-IMPORTANTE — esto NO reemplaza el chequeo real que hace Camila: {BOT_NAME} junta el número y
-las fotos para que queden en la ficha y Camila no tenga que volver a pedirlos (eso es lo que
-evita que el cliente se frene justo en el último paso), pero la validación real contra el
-sistema de Claro (que no tenga deuda, que la línea esté en condiciones, etc.) la sigue haciendo
-Camila al momento del alta — {BOT_NAME} no valida nada, solo recolecta los datos.
+IMPORTANTE — esto NO reemplaza el chequeo real que hace Camila: {BOT_NAME} junta los datos y
+pide las fotos para que el trámite llegue lo más completo posible. Si quedaron pendientes,
+Camila las coordina con el cliente. La validación real contra el sistema de Claro (que no tenga
+deuda, que la línea esté en condiciones, etc.) la sigue haciendo Camila al momento del alta —
+{BOT_NAME} no valida nada, solo recolecta los datos.
 
 Flujo:
 
-{BOT_NAME.upper()} JUNTA TODOS LOS DATOS (incluido DNI/CUIT y las fotos del documento) → CIERRA
+{BOT_NAME.upper()} JUNTA TODOS LOS DATOS Y PIDE LAS FOTOS DEL DOCUMENTO → SI LAS RECIBE LAS
+ADJUNTA; SI EL CLIENTE NO PUEDE O NO QUIERE ENVIARLAS, LAS MARCA PENDIENTES CON CAMILA → CIERRA
 → CLIENTE LE ESCRIBE A CAMILA UN MENSAJE SIMPLE DICIENDO QUE VIENE DE PARTE DE {BOT_NAME}
 → LA FICHA COMPLETA QUEDA REGISTRADA INTERNAMENTE; EL CLIENTE NO LA COPIA NI LA REENVÍA
 → CAMILA VALIDA EN EL SISTEMA Y HACE EL ALTA.
@@ -3341,7 +3310,8 @@ async def _find_camila_conversation_id():
     return await _find_conversation_by_phone(NUMERO_CAMILA)
 
 
-async def notify_camila_carga_sheets(campos: dict, telefono: str) -> None:
+async def notify_camila_carga_sheets(campos: dict, telefono: str,
+                                      foto_dni_pendiente: bool = False) -> None:
     """Le avisa a Camila por WhatsApp que se cargó una fila nueva en la planilla, con el
     número de contacto del cliente. Si el "número a portar" que dio el cliente es distinto
     del número de contacto, lo aclara (no suele pasar).
@@ -3375,6 +3345,8 @@ async def notify_camila_carga_sheets(campos: dict, telefono: str) -> None:
         mensaje = f"se cargó en la planilla este número: {telefono}"
         if numeros_portar and not _mismo_telefono(numeros_portar[0], telefono):
             mensaje += f" (el número a portar es distinto: {numeros_portar[0]})"
+    if foto_dni_pendiente:
+        mensaje += "\n⚠️ la foto del DNI quedó pendiente: coordinála con el cliente al cerrar el alta"
 
     try:
         await send_message(conv_id, mensaje)
@@ -4264,7 +4236,8 @@ def _valor_seguro_sheets(valor) -> str:
 
 
 async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
-                                 foto_dni_frente: str = "", foto_dni_dorso: str = "") -> bool:
+                                 foto_dni_frente: str = "", foto_dni_dorso: str = "",
+                                 foto_dni_pendiente: bool = False) -> bool:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (re-confirmado contra el
     encabezado real el 26/09/2026, después de que el equipo insertó una columna sin nombre
@@ -4314,8 +4287,15 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     # evita repetir la MISMA línea ya cargada.
     ya_cargados = await _pares_numero_telefono_existentes()
 
-    foto_frente = f'=HYPERLINK("{foto_dni_frente}";"Ver foto DNI")' if foto_dni_frente else ""
-    foto_dorso = f'=HYPERLINK("{foto_dni_dorso}";"Ver foto DNI (dorso)")' if foto_dni_dorso else ""
+    pendiente_foto = "Pendiente con Camila" if foto_dni_pendiente else ""
+    foto_frente = (
+        f'=HYPERLINK("{foto_dni_frente}";"Ver foto DNI")'
+        if foto_dni_frente else pendiente_foto
+    )
+    foto_dorso = (
+        f'=HYPERLINK("{foto_dni_dorso}";"Ver foto DNI (dorso)")'
+        if foto_dni_dorso else pendiente_foto
+    )
     # El "'" al principio fuerza a Sheets a guardarlo como texto literal en vez de interpretar
     # "26/10/1981" como una fecha real y convertirlo a su número de serie interno (ej. "29885")
     # -- pasó en vivo con una venta real: la columna F. NAC no tiene formato de fecha aplicado
@@ -5338,11 +5318,14 @@ _recuperacion_revisadas: dict = {}
 _PEDIDO_REVISION = (
     "[Nota interna del sistema, NO es un mensaje del cliente] Revisión automática de ventas: "
     "releé TODA la conversación de arriba (las fotos que mandó el cliente están a continuación). "
-    "Si el cliente YA dio todos los datos del checklist que le corresponde (secciones 44/45/42, "
-    "incluida la foto del DNI) y quiere pasarse a Claro, pero todavía NO se lo derivó (o se le "
+    "Si el cliente YA dio todos los datos del checklist que le corresponde (secciones 44/45/42) "
+    "y quiere pasarse a Claro, pero todavía NO se lo derivó (o se le "
     "pasó el link de Camila sin generar la ficha), respondé ÚNICAMENTE con la ficha interna "
     "completa (secciones 50/51/52), empezando exactamente con 'Hola Camila, quiero avanzar', sin "
-    "ningún otro texto. Una consulta por un chip ya gestionado, seguimiento de envío, activación "
+    "ningún otro texto. La foto del DNI tiene que haberse pedido; puede estar recibida o puede "
+    "haber quedado expresamente pendiente porque el cliente dijo que no podía/no quería enviarla "
+    "en ese momento. En ese segundo caso se deriva igual para que la coordine con Camila. "
+    "Una consulta por un chip ya gestionado, seguimiento de envío, activación "
     "o datos que el cliente dice haber pasado a otra asesora es POSTVENTA y NUNCA es una venta "
     "nueva, aunque haya enviado fotos del DNI. En Empresa también tiene que haber confirmado por "
     "escrito que es monotributista o responsable inscripto y tiene que haber pasado su CUIT; el "
@@ -5363,12 +5346,13 @@ async def _recuperacion_ventas_loop() -> None:
 
 
 def _es_candidata_a_recuperar(messages: list) -> bool:
-    """Filtro barato (sin llamar al modelo): el bot ya pidió datos del checklist y el cliente
-    mandó dos imágenes distintas o un PDF -- las fotos del DNI se piden al final, así que sin
-    el documento completo seguro falta algo."""
+    """Filtro barato: plan confirmado y foto completa o expresamente pendiente con Camila."""
     if _es_contexto_postventa(messages) or not _cliente_confirmo_plan(messages):
         return False
-    return _estado_fotos_dni(messages) == 2
+    return (
+        _estado_fotos_dni(messages) == 2
+        or _cliente_dejo_foto_dni_pendiente(messages)
+    )
 
 
 async def _revisar_conversacion_para_recuperar(conversation_id: int, messages: list):
@@ -5456,6 +5440,7 @@ async def _revisar_ventas_trabadas() -> None:
                 _recuperacion_revisadas[conversation_id] = ultimo_msj
                 recibio_link = any(m.get("message_type") == 1 and NUMERO_CAMILA
                                    and NUMERO_CAMILA in (m.get("content") or "") for m in messages)
+                foto_pendiente = _cliente_dejo_foto_dni_pendiente(messages)
                 telefono = await _get_contact_phone(conversation_id)
                 if NUMERO_DUENO and "claro" not in campos.get("Compañía actual", "").lower():
                     conv_dueno = await _find_conversation_by_phone(NUMERO_DUENO)
@@ -5464,8 +5449,13 @@ async def _revisar_ventas_trabadas() -> None:
                             f"✅ Venta recuperada automáticamente (el bot no la había derivado bien).\n"
                             f"Cliente: {campos.get('Nombre', '')} - {telefono or ''}\n"
                             f"Conversación: {conversation_id}\n"
-                            f"Ya quedó cargada en la planilla (la fecha de nacimiento quedó vacía: "
-                            f"completala mirando la foto del DNI). "
+                            + (
+                                "Ya quedó cargada en la planilla; la foto del DNI quedó pendiente "
+                                "para coordinar con Camila. "
+                                if foto_pendiente else
+                                "Ya quedó cargada en la planilla (la fecha de nacimiento quedó "
+                                "vacía: completala mirando la foto del DNI). "
+                            )
                             + ("El cliente ya tiene el link de Camila."
                                if recibio_link else
                                "El cliente todavía NO recibió el link de Camila: que alguien lo contacte.")
@@ -6154,6 +6144,66 @@ def _estado_fotos_dni(all_messages: list) -> int:
     return 0
 
 
+def _cliente_dejo_foto_dni_pendiente(all_messages: list) -> bool:
+    """True cuando, después de pedirle las fotos, el cliente dice que no puede enviarlas ahora.
+
+    La foto se sigue pidiendo como último paso, pero una negativa, falta del documento,
+    desconfianza o imposibilidad técnica ya no frena una venta con el resto de la ficha completa.
+    """
+    if _estado_fotos_dni(all_messages) == 2:
+        return False
+    foto_pedida = False
+    for message in sorted(all_messages, key=lambda item: item.get("id") or 0):
+        if message.get("private"):
+            continue
+        texto = _normalizar_control(message.get("content") or "")
+        if message.get("message_type") == 1:
+            if "dni" in texto and re.search(r"\b(?:foto|fotos|frente|dorso|imagen)\b", texto):
+                foto_pedida = True
+            continue
+        if message.get("message_type") != 0 or not foto_pedida:
+            continue
+        respuesta_corta = re.sub(r"[^a-z0-9\s]", " ", texto)
+        respuesta_corta = re.sub(r"\s+", " ", respuesta_corta).strip()
+        if respuesta_corta in {"no", "ahora no", "no puedo", "no tengo", "mas tarde", "despues"}:
+            return True
+        if re.search(r"\bno tengo (?:ningun )?problema\b", texto):
+            # "No tengo problema en mandarlas" expresa aceptación, no una foto pendiente.
+            continue
+        patrones_pendiente = (
+            # No tiene el documento o alguna de las imágenes disponibles.
+            r"\b(?:ahora\s+)?no\s+(?:(?:lo|la|las)\s+)?(?:tengo|encuentro)\b",
+            r"\bno\s+(?:lo|la|las)?\s*(?:tengo|encuentro)\b.{0,35}"
+            r"\b(?:dni|documento|foto|fotos|frente|dorso|a mano|aca|conmigo)\b",
+            r"\b(?:perdi|perdio|extravie|extravio)\b.{0,25}\b(?:dni|documento)\b",
+            r"\b(?:dni|documento|foto|fotos|frente|dorso)\b.{0,30}"
+            r"\bno\s+(?:lo|la|las)?\s*(?:tengo|encuentro)\b",
+            # Negativa o desconfianza concreta frente al envío de documentación.
+            r"\b(?:no quiero|prefiero no|no me animo)\b.{0,35}"
+            r"\b(?:mandar|enviar|pasar|subir|adjuntar|foto|fotos|dni|documento)\w*\b",
+            r"\b(?:desconfio|desconfianza|miedo|insegur\w*)\b",
+            # Lo enviará más adelante o directamente a Camila.
+            r"\b(?:despues|mas tarde|manana|cuando llegue|cuando vuelva|cuando lo tenga)\b"
+            r".{0,45}\b(?:mando|paso|envio|foto|fotos|dni|documento)\w*\b",
+            r"\b(?:mando|paso|envio)\w*\b.{0,35}"
+            r"\b(?:despues|mas tarde|manana|camila)\b",
+            r"\b(?:se la|se las|la|las)\b.{0,25}\b(?:mando|paso|envio)\w*\b"
+            r".{0,25}\bcamila\b",
+            # La plataforma o el teléfono no le permiten adjuntar el archivo.
+            r"\b(?:no me deja|no puedo|no (?:la|las|lo) puedo|me da error)\b.{0,30}"
+            r"\b(?:adjuntar|subir|enviar|mandar|cargar|sacar)\w*\b",
+            r"\bno\s+(?:la|las|lo)?\s*(?:puedo\s+)?"
+            r"(?:adjuntar|subir|enviar|mandar|cargar|sacar)\w*\b",
+            r"\b(?:mando|paso|envio)\w*\b.{0,25}\b(?:a ella|tu jefa)\b",
+            # Prefiere completar la documentación en persona.
+            r"\b(?:prefiero|mejor|voy a|quiero)\b.{0,30}"
+            r"\b(?:presencial|en persona|local|sucursal)\b",
+        )
+        if any(re.search(patron, texto) for patron in patrones_pendiente):
+            return True
+    return False
+
+
 def _mensaje_fotos_dni_faltantes(all_messages: list) -> str:
     if _estado_fotos_dni(all_messages) == 1:
         return (
@@ -6166,8 +6216,28 @@ def _mensaje_fotos_dni_faltantes(all_messages: list) -> str:
     )
 
 
+def _agregar_aviso_foto_pendiente(reply: str) -> str:
+    """Garantiza que el cliente sepa que debe coordinar la foto faltante con Camila."""
+    aviso = (
+        "no te preocupes, avanzamos igual. escribile a mi jefa Camila por acá: "
+        f"{NUMERO_CAMILA} y terminá el alta con ella; coordiná con ella la foto del DNI"
+    )
+    if "Hola Camila, quiero avanzar" in reply:
+        parte_publica, ficha = reply.split("Hola Camila, quiero avanzar", 1)
+        normalizada = _normalizar_control(parte_publica)
+        if "camila" in normalizada and "foto" in normalizada and "dni" in normalizada:
+            return reply
+        parte_publica = parte_publica.rstrip(" \n-")
+        prefijo = f"{parte_publica}\n\n" if parte_publica else ""
+        return f"{prefijo}{aviso}\n---\nHola Camila, quiero avanzar{ficha}"
+    normalizada = _normalizar_control(reply)
+    if "camila" in normalizada and "foto" in normalizada and "dni" in normalizada:
+        return reply
+    return f"{reply.rstrip()}\n\n{aviso}".strip()
+
+
 class FotosDNIIncompletasError(RuntimeError):
-    """Impide por código que una derivación sin las fotos requeridas llegue a Sheets."""
+    """Impide saltar el pedido de fotos sin una respuesta explícita del cliente."""
 
 
 _sheets_registro_lock = asyncio.Lock()
@@ -6214,12 +6284,18 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
             f"Conversación {conversation_id}: ficha incompleta; faltan "
             f"{', '.join(faltantes)}"
         )
+    foto_pendiente_con_camila = _cliente_dejo_foto_dni_pendiente(all_messages)
     foto_dni_frente, foto_dni_dorso = await _verificar_fotos_dni(all_messages)
-    if not foto_dni_frente or not foto_dni_dorso:
+    fotos_completas = bool(foto_dni_frente and foto_dni_dorso)
+    if not fotos_completas and not foto_pendiente_con_camila:
         raise FotosDNIIncompletasError(
-            f"Conversación {conversation_id}: derivación bloqueada porque no se verificaron "
-            f"frente y dorso del DNI"
+            f"Conversación {conversation_id}: todavía no se verificaron frente y dorso del DNI "
+            "ni el cliente indicó que los coordinará después con Camila"
         )
+    if foto_pendiente_con_camila and not fotos_completas:
+        # La fecha solo puede venir de una foto verificada. Si falta el documento, queda vacía
+        # para que el equipo la complete al recibirlo, en vez de aceptar una invención del modelo.
+        campos = {**campos, "Fecha de nacimiento": ""}
     if campos.get("DNI") and not _dni_escrito_por_cliente(campos["DNI"], all_messages):
         logger.warning(f"Conversación {conversation_id}: el DNI de la ficha ({campos['DNI']}) no "
                        f"lo escribió el cliente -- se deja en blanco para que lo complete el equipo.")
@@ -6256,13 +6332,18 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
             fecha_nacimiento,
             foto_dni_frente,
             foto_dni_dorso,
+            foto_dni_pendiente=foto_pendiente_con_camila and not fotos_completas,
         )
     if not registro_ok:
         # Fundamental: sin excepción el flujo avisaba a Camila y agregaba `ddd` aunque Sheets
         # hubiera fallado. Al levantarla, el bloque superior reintenta y, si no se recupera,
         # deja la conversación sin etiqueta y avisa al responsable.
         raise RuntimeError("la derivación no quedó registrada en Google Sheets")
-    await notify_camila_carga_sheets(campos, telefono)
+    await notify_camila_carga_sheets(
+        campos,
+        telefono,
+        foto_dni_pendiente=foto_pendiente_con_camila and not fotos_completas,
+    )
     if not await add_conversation_label(conversation_id, DERIVADO_LABEL):
         raise RuntimeError(
             f"la venta quedó en Sheets pero no se pudo agregar la etiqueta {DERIVADO_LABEL!r}"
@@ -6440,9 +6521,9 @@ async def process_conversation(conversation_id: int) -> None:
                     )
                     intenta_derivar = False
 
-            # Bloqueo previo al handoff: una ficha completa por texto y frente/dorso reales son
-            # dos condiciones independientes. Primero se validan todos los campos comerciales;
-            # después un verificador visual confirma que los adjuntos sean realmente el DNI.
+            # Bloqueo previo al handoff: todos los campos comerciales siguen siendo obligatorios.
+            # La foto se pide, pero si el cliente explica que no puede/no quiere mandarla ahora,
+            # se deriva igual y queda expresamente pendiente para que la coordine con Camila.
             fichas_propuestas = []
             if "Hola Camila, quiero avanzar" in reply:
                 bubbles_propuestas = split_into_bubbles(reply)
@@ -6475,11 +6556,19 @@ async def process_conversation(conversation_id: int) -> None:
                     all_messages
                 )
                 if not foto_frente_verificada or not foto_dorso_verificada:
-                    logger.warning(
-                        f"Conversación {conversation_id}: el modelo intentó derivar sin "
-                        f"frente/dorso de DNI verificados; se reemplaza la respuesta."
-                    )
-                    reply = _mensaje_fotos_dni_faltantes(all_messages)
+                    if _cliente_dejo_foto_dni_pendiente(all_messages):
+                        logger.info(
+                            f"Conversación {conversation_id}: se deriva con la foto del DNI "
+                            "pendiente para coordinar con Camila."
+                        )
+                        reply = _agregar_aviso_foto_pendiente(reply)
+                    else:
+                        logger.warning(
+                            f"Conversación {conversation_id}: el modelo intentó derivar sin "
+                            "fotos verificadas y sin respuesta del cliente; se piden las fotos."
+                        )
+                        reply = _mensaje_fotos_dni_faltantes(all_messages)
+                        intenta_derivar = False
 
             # El modelo puede marcar que el tema quedó cerrado y no corresponde programar un
             # seguimiento automático después de esta respuesta (ver NOTA TÉCNICA en el SYSTEM_PROMPT).
