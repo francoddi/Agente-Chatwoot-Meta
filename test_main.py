@@ -53,7 +53,25 @@ def _conversacion_activa(**overrides):
     return data
 
 
+def _ficha_consumidor_completa():
+    return {
+        "Tipo de portabilidad": "Portabilidad",
+        "Tipo de cliente": "Consumidor final",
+        "Nombre": "Ana María Pérez",
+        "Compañía actual": "Movistar",
+        "Número a portar": "2235551234",
+        "Plan elegido": "4 GB",
+        "Localidad": "Mar del Plata",
+        "Provincia": "Buenos Aires",
+        "Dirección": "San Martín 1234",
+        "Código postal": "7600",
+    }
+
+
 class ReglasDeNegocioTest(unittest.TestCase):
+    def _ficha_consumidor_completa(self):
+        return _ficha_consumidor_completa()
+
     def test_precios_consumidor_final_estan_al_65_por_ciento(self):
         movistar_tuenti = main.SYSTEM_PROMPT.split(
             "28. CONSUMIDOR FINAL — MOVISTAR / TUENTI", 1
@@ -427,6 +445,137 @@ class ReglasDeNegocioTest(unittest.TestCase):
         candidatos = main._adjuntos_candidatos_dni(messages)
         self.assertEqual([item["_dni_url"] for item in candidatos], ["dni-frente"])
 
+    def test_reclamos_de_chip_anterior_son_postventa_y_no_ventas(self):
+        hugo = [
+            _mensaje(1, 0, "el viernes le pasé todas las fotos del documento a la chica"),
+            _mensaje(2, 1, "mandame frente y dorso del DNI"),
+            _mensaje(3, 0, attachments=[_imagen("frente", 10), _imagen("dorso", 20)]),
+        ]
+        gabriela = [
+            _mensaje(1, 0, "hola, habrá llegado mi chip? lo espero desde la semana pasada"),
+            _mensaje(2, 1, "mandame frente y dorso del DNI"),
+            _mensaje(3, 0, attachments=[_imagen("frente", 10), _imagen("dorso", 20)]),
+        ]
+        preventa = [
+            _mensaje(1, 0, "cuánto demora en llegar el chip si hago el cambio?"),
+        ]
+        variantes_postventa = (
+            "nunca me llegó el chip",
+            "ya tengo el chip pero no funciona",
+            "quiero activar la sim que recibí",
+            "ya le pasé todos los datos y las fotos del DNI",
+        )
+        self.assertTrue(main._es_contexto_postventa(hugo))
+        self.assertTrue(main._es_contexto_postventa(gabriela))
+        for texto in variantes_postventa:
+            self.assertTrue(main._es_contexto_postventa([_mensaje(1, 0, texto)]), texto)
+        self.assertFalse(main._es_contexto_postventa(preventa))
+        self.assertFalse(main._es_candidata_a_recuperar(hugo))
+        self.assertFalse(main._es_candidata_a_recuperar(gabriela))
+
+    def test_una_ficha_con_solo_nombre_y_fotos_no_es_valida(self):
+        faltantes = main._campos_faltantes_derivacion({
+            "Tipo de cliente": "Consumidor final",
+            "Nombre": "Hugo",
+        })
+        self.assertIn("tipo de portabilidad", faltantes)
+        self.assertIn("nombre completo del titular", faltantes)
+        self.assertIn("plan elegido", faltantes)
+
+    def test_ficha_consumidor_completa_supera_validacion_comercial(self):
+        self.assertEqual(
+            main._campos_faltantes_derivacion(self._ficha_consumidor_completa()),
+            [],
+        )
+
+    def test_empresa_exige_cuit_valido_y_confirmacion_explicita_de_activo(self):
+        campos = {
+            **self._ficha_consumidor_completa(),
+            "Tipo de cliente": "Empresa",
+            "CUIT": "27-30519335-1",
+            "CUIT activo declarado": "Sí",
+        }
+        solo_dijo_monotributista = [
+            _mensaje(1, 0, "soy monotributista social"),
+        ]
+        self.assertTrue(main._cuit_formato_valido(campos["CUIT"]))
+        self.assertIn(
+            "confirmación escrita del cliente de que el CUIT está activo",
+            main._campos_faltantes_derivacion(campos, solo_dijo_monotributista),
+        )
+
+        confirmo_activo = [
+            _mensaje(1, 0, "soy monotributista"),
+            _mensaje(2, 1, "tenés el CUIT activo actualmente?"),
+            _mensaje(3, 0, "sí, lo tengo activo"),
+        ]
+        self.assertEqual(main._campos_faltantes_derivacion(campos, confirmo_activo), [])
+
+    def test_empresa_rechaza_cuit_activo_sin_categoria_fiscal_admitida(self):
+        campos = {
+            **self._ficha_consumidor_completa(),
+            "Tipo de cliente": "Empresa",
+            "CUIT": "27-30519335-1",
+            "CUIT activo declarado": "Sí",
+        }
+        messages = [
+            _mensaje(1, 1, "tenés el CUIT activo actualmente?"),
+            _mensaje(2, 0, "sí, está activo"),
+        ]
+        self.assertIn(
+            "confirmación de que es monotributista o responsable inscripto",
+            main._campos_faltantes_derivacion(campos, messages),
+        )
+
+    def test_no_confunde_cuit_inactivo_o_dudoso_con_confirmacion(self):
+        for respuesta in (
+            "mi CUIT no está activo",
+            "no sé si mi CUIT está activo",
+            "creo que no está activo el CUIT",
+        ):
+            messages = [_mensaje(1, 0, respuesta)]
+            self.assertFalse(main._cliente_confirmo_cuit_activo(messages), respuesta)
+
+    def test_no_confunde_negacion_con_categoria_empresa(self):
+        for respuesta in (
+            "no soy monotributista",
+            "antes era responsable inscripto",
+            "no sé si soy monotributista",
+        ):
+            messages = [_mensaje(1, 0, respuesta)]
+            self.assertFalse(main._cliente_confirmo_condicion_empresa(messages), respuesta)
+
+    def test_negacion_de_empresa_no_bloquea_precio_consumidor_final(self):
+        messages = [
+            _mensaje(1, 0, "soy de Movistar"),
+            _mensaje(2, 0, "no soy monotributista, es con DNI"),
+        ]
+        self.assertFalse(main._cliente_planteo_empresa(messages))
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "el de 4gb te queda en $20.997, ya con el 65% off aplicado",
+            messages,
+        ))
+
+    def test_mensaje_de_bloqueo_pide_categoria_y_cuit_activo_sin_tecnicismos(self):
+        mensaje = main._mensaje_ficha_incompleta([
+            "confirmación de que es monotributista o responsable inscripto",
+            "confirmación escrita del cliente de que el CUIT está activo",
+        ])
+        self.assertIn("monotributista o responsable inscripto", mensaje)
+        self.assertIn("CUIT activo", mensaje)
+        self.assertNotIn("confirmación escrita", mensaje)
+
+    def test_bloquea_garantia_no_verificada_sobre_cuit(self):
+        historial = [
+            _mensaje(1, 0, "soy monotributista"),
+            _mensaje(2, 0, "me dijeron que no se puede pasar de DNI a CUIT"),
+        ]
+        motivo = main._motivo_respuesta_incoherente(
+            "lo que te dijeron no es correcto, se puede hacer sin ningún problema con CUIT",
+            historial,
+        )
+        self.assertIsNotNone(motivo)
+
 
 class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
     async def test_no_duplica_el_mismo_aviso_de_falla_en_una_hora(self):
@@ -508,7 +657,34 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_registro_sin_fotos_se_bloquea_antes_de_sheets(self):
         with self.assertRaises(main.FotosDNIIncompletasError):
-            await main._registrar_derivacion_completa(12, {"Nombre": "Adán"}, [])
+            await main._registrar_derivacion_completa(
+                12,
+                _ficha_consumidor_completa(),
+                [],
+            )
+
+    async def test_postventa_no_se_registra_aunque_tenga_fotos(self):
+        mensajes = [
+            _mensaje(1, 0, "habrá llegado mi chip? lo espero desde la semana pasada"),
+            _mensaje(2, 0, attachments=[
+                _imagen("dni-frente", 101),
+                _imagen("dni-dorso", 102),
+            ]),
+        ]
+        sheets = AsyncMock()
+        label = AsyncMock()
+        with (
+            patch.object(main, "log_to_google_sheets", sheets),
+            patch.object(main, "add_conversation_label", label),
+        ):
+            with self.assertRaises(main.DerivacionPostventaError):
+                await main._registrar_derivacion_completa(
+                    12,
+                    _ficha_consumidor_completa(),
+                    mensajes,
+                )
+        sheets.assert_not_awaited()
+        label.assert_not_awaited()
 
     async def test_falla_de_sheets_no_avisa_a_camila_ni_etiqueta_ddd(self):
         notify = AsyncMock()
@@ -524,7 +700,7 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "Google Sheets"):
                 await main._registrar_derivacion_completa(
                     12,
-                    {"Nombre": "Prueba", "Compañía actual": "Movistar"},
+                    _ficha_consumidor_completa(),
                     [],
                 )
         notify.assert_not_awaited()

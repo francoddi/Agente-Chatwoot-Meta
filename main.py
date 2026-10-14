@@ -246,6 +246,14 @@ No le muestres precios, no le pidas datos, no la derives. Ver sección 33.3.
 
 Esta regla tiene prioridad máxima.
 
+RECLAMOS DE UNA VENTA ANTERIOR / POSTVENTA: si el cliente dice que ya pasó los datos o las
+fotos a otra asesora, que ya le gestionaron o enviaron un chip, que está esperando que llegue,
+o pregunta por el seguimiento/activación de un pedido anterior, NO es una venta nueva. No le
+pidas nuevamente datos ni fotos para "derivarlo", no armes una ficha comercial y no lo marques
+como venta. Ayudalo como consulta de postventa y, si corresponde, pasale el contacto de Camila
+solamente para revisar el pedido existente. Que mande fotos del DNI dentro de ese reclamo NO
+convierte la consulta en una nueva venta.
+
 IDIOMA OBLIGATORIO: respondé siempre en español argentino. Nunca redactes mensajes en inglés,
 ni siquiera parcialmente, y nunca muestres análisis, razonamientos, instrucciones internas o
 encabezados técnicos. Marcas y términos inevitables como WhatsApp, email, internet o GB sí pueden
@@ -954,7 +962,17 @@ EMPRESA:
 - monotributista
 - responsable inscripto
 
-Monotributistas y responsables inscriptos utilizan la misma tabla Empresa.
+Monotributistas y responsables inscriptos utilizan la misma tabla Empresa, SIEMPRE que el
+CUIT esté activo. Tener un número de CUIT con formato válido o decir "soy monotributista" no
+demuestra por sí solo que esté activo: preguntalo expresamente antes de avanzar y aclarale que
+Camila hace la validación final al cargar el alta. Si el CUIT figura inactivo, la operación no
+puede salir con la tabla Empresa.
+
+NUNCA garantices que un CUIT está activo ni que una línea actualmente registrada como
+Consumidor Final puede pasarse a Empresa "sin ningún problema". No tenemos acceso al padrón
+fiscal desde esta conversación. Si el cliente cuenta que otra persona le dijo que no se puede,
+NO contradigas esa información como si tuvieras una verificación: explicá que depende de que el
+CUIT esté activo y de la validación final de Camila.
 
 DEFAULT A DNI — YA NO SE PREGUNTA DE ENTRADA (16/09/2026, a pedido explícito): en datos
 reales, 97.67% de las ventas son Consumidor Final/DNI y solo 2.33% son Empresa/CUIT. Preguntar
@@ -965,15 +983,16 @@ Apenas sabés la compañía, asumí TIPO_CLIENTE = CONSUMIDOR_FINAL por default 
 precio de esa tabla (DNI) — no preguntes categoría antes de eso. NO es "no preguntar nunca":
 es no preguntar DE ENTRADA, antes de mostrar el primer precio.
 
-Cuándo SÍ corresponde usar la tabla Empresa en cambio: si el cliente mismo lo trae —
+Cuándo SÍ corresponde considerar la tabla Empresa en cambio: si el cliente mismo lo trae —
 dice "soy monotributista", "es para mi empresa", "lo hago con CUIT", "soy responsable
 inscripto", o pregunta directamente si hay otro precio para monotributistas/empresas. Ahí
-cambiás a la tabla correcta con naturalidad (ver sección 20, ahora es reactivo, no de
-apertura). Si nunca lo menciona, seguís con Consumidor Final hasta el final — no hace falta
+confirmás primero que sea monotributista o responsable inscripto y que tenga el CUIT activo;
+recién entonces usás la tabla correcta con naturalidad (ver sección 20, ahora es reactivo, no
+de apertura). Si nunca lo menciona, seguís con Consumidor Final hasta el final — no hace falta
 confirmarlo aparte.
 
-- Te dice o dijo CUIT/empresa/monotributista → TIPO_CLIENTE = EMPRESA (aplica igual a
-  monotributista y a responsable inscripto, es la misma tabla).
+- Confirma que es monotributista o responsable inscripto Y que tiene CUIT activo →
+  TIPO_CLIENTE = EMPRESA (es la misma tabla para ambas categorías, sujeta a validación final).
 - Cualquier otro caso (no lo menciona) → TIPO_CLIENTE = CONSUMIDOR_FINAL, sin preguntar.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -982,7 +1001,9 @@ confirmarlo aparte.
 
 Esto ya no se pregunta de apertura (ver sección 19). Pero si en cualquier momento el cliente
 menciona que es monotributista/empresa, dice que lo hace con CUIT, o pregunta si hay un precio
-distinto para eso, ahí sí aclarás y pasás a la tabla correcta.
+distinto para eso, confirmá que sea monotributista o responsable inscripto y preguntale si su
+CUIT está activo. Los precios Empresa se pueden explicar como oferta, aclarando que están
+sujetos a la validación final del CUIT; no derives hasta que el cliente confirme que está activo.
 
 Ejemplo:
 
@@ -990,13 +1011,14 @@ CLIENTE:
 "che, y para monotributistas hay otro precio?"
 
 RESPUESTA:
-"sí, para monotributista o empresa (con CUIT) el precio es distinto al que te pasé. el de
-[plan] te queda en $[precio Empresa]"
+"sí, para monotributistas o responsables inscriptos con CUIT activo el precio es distinto. lo
+tenés activo actualmente? después Camila hace la validación final al cargar el alta"
 
 Otra forma, si todavía no mostraste ningún precio y el cliente ya aclaró que es con CUIT antes
 de que llegaras a mostrar nada:
 
-"ah, con CUIT entonces. te paso los precios para ese caso: [tabla Empresa]"
+"ah, si sos monotributista o responsable inscripto y tenés el CUIT activo, te corresponde la
+tabla Empresa. te paso los precios para ese caso, sujetos a la validación final: [tabla Empresa]"
 
 No utilizar siempre exactamente la misma frase.
 
@@ -1016,8 +1038,8 @@ Ejemplo:
 
 "te explico: dni es para persona física, la linea queda a tu nombre
 
-cuit es para empresa o monotributista, queda a nombre de la empresa — por eso el precio es
-distinto"
+cuit es para monotributistas o responsables inscriptos con CUIT activo; se factura con ese
+CUIT y Camila valida que esté habilitado al cargar el alta — por eso el precio es distinto"
 
 También puede decirse en dos mensajes separados si queda más natural.
 
@@ -1058,7 +1080,7 @@ Si el cliente dice:
 ya sabés:
 
 COMPANIA = MOVISTAR
-TIPO_CLIENTE = EMPRESA
+TIPO_CLIENTE = EMPRESA PENDIENTE DE CONFIRMAR CUIT ACTIVO
 PLAN = 30GB
 
 No preguntar:
@@ -1067,7 +1089,9 @@ No preguntar:
 - categoría,
 - plan.
 
-Responder directamente con la información correspondiente.
+Sí falta preguntar si tiene el CUIT activo. Podés mostrar el precio Empresa aclarando que aplica
+para monotributistas o responsables inscriptos con CUIT activo y está sujeto a la validación
+final de Camila, pero no iniciar el checklist ni derivar hasta que lo confirme.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 24. RESPONDER TODA LA IDEA, NO CADA BURBUJA
@@ -1670,6 +1694,8 @@ Obtener:
 - número a portar
 - plan elegido
 - CUIT
+- confirmación explícita del cliente de que actualmente es monotributista o responsable
+  inscripto y que el CUIT está activo (Camila igualmente hace la validación final)
 - foto de frente y dorso del DNI del titular de la línea (ver sección 54 — mismo criterio que
   Consumidor Final, aunque acá el dato de facturación sea el CUIT)
 - email
@@ -1725,6 +1751,12 @@ Mensaje 2:
 Empresa (en vez de DNI):
 
 "pasame el CUIT del titular de la línea, el nombre completo y el número que querés portar"
+
+En Empresa, antes de pedir las fotos y derivar, también tiene que quedar contestada esta
+pregunta: "¿tenés el CUIT activo actualmente?". No deduzcas que está activo porque el número
+tenga 11 dígitos, porque el cliente diga que es monotributista o porque el CUIT tenga un formato
+válido. Si confirma que sí, seguí aclarando que Camila realiza la validación final. Si dice que
+no está activo o no lo sabe, no prometas el alta ni armes la ficha todavía.
 
 Recién cuando ya tengas TODO lo anterior (nombre, DNI/CUIT, número a portar, email, localidad,
 provincia, dirección, código postal), como último paso del checklist, pedí la foto del DNI (ver
@@ -1852,6 +1884,8 @@ Antes de Camila:
 
 TIPO_CLIENTE = EMPRESA
 
+CATEGORIA_FISCAL_CONFIRMADA = MONOTRIBUTISTA o RESPONSABLE_INSCRIPTO
+
 SITUACION definida
 
 COMPANIA_ORIGEN conocida
@@ -1867,6 +1901,8 @@ NOMBRE
 NUMERO_A_PORTAR si corresponde
 
 CUIT
+
+CUIT_ACTIVO_CONFIRMADO_POR_CLIENTE = SI
 
 FOTO_DNI (frente y dorso, del titular de la línea — ver sección 54, bloquea el handoff si falta)
 
@@ -2219,6 +2255,7 @@ Compañía actual: [COMPANIA]
 Número a portar: [NUMERO]
 Plan elegido: [PLAN]
 CUIT: [CUIT]
+CUIT activo declarado: Sí
 Fecha de nacimiento: [FECHA_NACIMIENTO]
 Email: [EMAIL]
 Localidad: [LOCALIDAD]
@@ -2227,6 +2264,10 @@ Dirección: [DIRECCION]
 Código postal: [CODIGO_POSTAL]"
 
 NO poner precio.
+
+La línea "CUIT activo declarado: Sí" SOLO se agrega si el cliente respondió expresamente que
+su CUIT está activo. No la inventes a partir de que dijo ser monotributista/responsable
+inscripto ni por el formato del número. Aunque figure "Sí", Camila realiza la validación final.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 51.1 SI PORTA MÁS DE UNA LÍNEA, LA ETIQUETA SIEMPRE ES "Número a portar" (singular)
@@ -2275,6 +2316,8 @@ Dirección: [DIRECCION]
 Código postal: [CODIGO_POSTAL]"
 
 Agregar DNI si Consumidor final, CUIT si Empresa (nunca los dos).
+Si es Empresa, agregar también "CUIT activo declarado: Sí" únicamente después de que el
+cliente lo haya confirmado expresamente; la validación final sigue correspondiendo a Camila.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 53. DESPUÉS DE LA FICHA
@@ -2709,16 +2752,18 @@ CLIENTE:
 Interpretación:
 
 COMPANIA = TUENTI
-TIPO = EMPRESA
+TIPO = EMPRESA PENDIENTE DE CONFIRMAR CUIT ACTIVO
 PLAN = 10GB
 
 RESPUESTA:
 
-"el de 10gb te queda en $20.805 sin impuestos
+"si tenés el CUIT activo, el de 10gb para monotributista te queda en $20.805 sin impuestos,
+sujeto a la validación final de Camila
 
-te suman 10gb durante 6 meses"
+lo tenés activo actualmente?"
 
-No hacer preguntas innecesarias.
+No volver a preguntar compañía, categoría ni plan. La confirmación de CUIT activo sí es
+obligatoria antes del checklist y la derivación.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 63. EJEMPLO — PREGUNTA POR CUIT/EMPRESA (reactivo)
@@ -2732,9 +2777,11 @@ CLIENTE:
 
 ASESORA:
 
-"sí, con CUIT te correspondería otro precio, distinto a este. dni es para persona física, la linea queda a tu nombre. cuit es para empresa o monotributista"
+"sí, para monotributistas o responsables inscriptos con CUIT activo el precio es distinto. lo
+tenés activo actualmente? después Camila hace la validación final al cargar el alta"
 
-Corto — y recién ahí, reactivo, se aclara la diferencia (ver sección 19: ya no se pregunta esto de entrada).
+Corto — y recién ahí, reactivo, se aclara la diferencia y se confirma el CUIT activo (ver
+sección 19: ya no se pregunta esto de entrada).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 64. EJEMPLO — YA ACEPTÓ
@@ -3835,6 +3882,255 @@ def _parse_ficha_fields(ficha: str) -> dict:
     return campos
 
 
+class FichaIncompletaError(RuntimeError):
+    """Impide que una ficha comercial incompleta llegue a Sheets o reciba la etiqueta ddd."""
+
+
+class DerivacionPostventaError(RuntimeError):
+    """Impide registrar como venta nueva una consulta de envío/activación ya existente."""
+
+
+def _normalizar_control(texto: str) -> str:
+    valor = unicodedata.normalize("NFD", (texto or "").lower())
+    valor = "".join(char for char in valor if unicodedata.category(char) != "Mn")
+    return re.sub(r"\s+", " ", valor).strip()
+
+
+def _cuit_formato_valido(cuit: str) -> bool:
+    """Valida únicamente estructura y dígito verificador; NO demuestra estado fiscal activo."""
+    digitos = re.sub(r"\D", "", cuit or "")
+    if len(digitos) != 11:
+        return False
+    suma = sum(int(numero) * peso for numero, peso in zip(digitos[:10], (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)))
+    verificador = 11 - (suma % 11)
+    if verificador == 11:
+        verificador = 0
+    elif verificador == 10:
+        verificador = 9
+    return verificador == int(digitos[-1])
+
+
+def _es_contexto_postventa(messages: list) -> bool:
+    """Detecta reclamos de una venta previa para que fotos/link de Camila no creen otra venta.
+
+    Los patrones exigen una referencia a algo que YA ocurrió (chip enviado/esperado, datos
+    entregados a otra asesora, seguimiento de un pedido). Preguntar cuánto demora un envío antes
+    de comprar no alcanza para clasificar la conversación como postventa.
+    """
+    texto = " ".join(
+        _normalizar_control(m.get("content") or "")
+        for m in messages
+        if m.get("message_type") == 0 and not m.get("private")
+    )
+    patrones = (
+        r"\b(?:habra|habria|ya)\b.{0,35}\blleg\w*\b.{0,25}\bchip\b",
+        r"\b(?:estoy|sigo)\b.{0,30}\besperando\b.{0,35}\bchip\b",
+        r"\b(?:nunca|no)\s+(?:me\s+)?lleg\w*\b.{0,25}\b(?:chip|sim)\b",
+        r"\b(?:chip|sim)\b.{0,25}\b(?:nunca|no)\b.{0,12}\blleg\w*\b",
+        r"\b(?:me llego|recibi|ya tengo)\b.{0,20}\b(?:chip|sim)\b",
+        r"\b(?:activar|activacion|active)\b.{0,30}\b(?:chip|sim)\b",
+        r"\bya\s+me\s+(?:mandan|mandaron|enviaron|despacharon)\b.{0,35}\bchip\b",
+        r"\b(?:estado|seguimiento)\b.{0,30}\b(?:envio|pedido|chip)\b",
+        r"\b(?:donde|cuando)\b.{0,30}\b(?:esta|llega|llego)\b.{0,25}\b(?:pedido|chip)\b",
+        r"\b(?:ayer|anteayer|semana pasada|vierne\w*|lunes)\b.{0,55}"
+        r"\b(?:pase|mande|envie|di)\b.{0,40}\b(?:datos|fotos|documento|dni)\b",
+        r"\b(?:la chica|la asesora|la vendedora|otra asesora)\b.{0,45}"
+        r"\b(?:tiene|le pase|le mande|le di)\b.{0,40}\b(?:datos|fotos|documento|dni)\b",
+        r"\bya\s+le\s+(?:pase|mande|envie|di)\b.{0,45}"
+        r"\b(?:datos|fotos|documento|dni)\b",
+        r"\bya\b.{0,30}\b(?:hice|hicieron|gestionaron|cargaron)\b.{0,35}"
+        r"\b(?:alta|cambio|portabilidad|pedido|tramite)\b",
+    )
+    return any(re.search(patron, texto) for patron in patrones)
+
+
+def _cliente_confirmo_cuit_activo(messages: list) -> bool:
+    """True sólo ante una confirmación explícita posterior a una pregunta sobre CUIT activo."""
+    ordenados = sorted(
+        [m for m in messages if not m.get("private")], key=lambda m: m.get("id") or 0
+    )
+    pregunta_pendiente = False
+    for message in ordenados:
+        texto = _normalizar_control(message.get("content") or "")
+        if message.get("message_type") == 1:
+            hizo_pregunta = bool(
+                "cuit" in texto and re.search(r"\b(?:activo|vigente|habilitado)\b", texto)
+                and ("?" in (message.get("content") or "")
+                     or re.search(r"\b(?:tenes|esta|figura|contas)\b", texto))
+            )
+            if hizo_pregunta:
+                pregunta_pendiente = True
+            continue
+        if message.get("message_type") != 0:
+            continue
+        declaracion_negativa_o_dudosa = bool(re.search(
+            r"\b(?:no\s+se|no\s+sé|no\s+estoy\s+segur\w*|dudo|creo\s+que\s+no)\b"
+            r".{0,35}\b(?:cuit|activo)\b|"
+            r"\bcuit\b.{0,30}\b(?:no\s+(?:esta|está|figura)\s+activo|inactivo|"
+            r"dado\s+de\s+baja|vencido)\b|"
+            r"\bno\s+tengo\b.{0,20}\bcuit\b.{0,15}\bactivo\b",
+            texto,
+        ))
+        if not declaracion_negativa_o_dudosa and re.search(
+            r"\b(?:mi|el)\s+cuit\b.{0,25}\b(?:esta|lo tengo|figura)\b.{0,15}"
+            r"\b(?:activo|vigente|habilitado)\b|"
+            r"\b(?:tengo|cuento con)\b.{0,15}\bcuit\b.{0,15}\b(?:activo|vigente|habilitado)\b",
+            texto,
+        ):
+            return True
+        if pregunta_pendiente:
+            respuesta_simple = re.sub(r"[^a-z0-9\s]", " ", texto)
+            respuesta_simple = re.sub(r"\s+", " ", respuesta_simple).strip()
+            if re.fullmatch(
+                r"(?:si(?: claro)?(?: esta activo| lo tengo activo)?|"
+                r"si (?:activo|vigente|habilitado)|"
+                r"esta activo|lo tengo activo|activo|correcto|afirmativo)",
+                respuesta_simple,
+            ):
+                return True
+            # La primera respuesta real a la pregunta fue ambigua o negativa: no reutilizar un
+            # "sí" posterior que puede referirse a otra cosa.
+            if texto:
+                pregunta_pendiente = False
+    return False
+
+
+def _cliente_confirmo_condicion_empresa(messages: list) -> bool:
+    """Empresa sólo corresponde si el cliente declaró una categoría fiscal admitida."""
+    categoria = r"(?:monotributista(?:\s+social)?|responsable\s+inscripto)"
+    for message in messages:
+        if message.get("message_type") != 0 or message.get("private"):
+            continue
+        texto = _normalizar_control(message.get("content") or "")
+        if not re.search(rf"\b{categoria}\b", texto):
+            continue
+        if re.search(
+            rf"\b(?:no|nunca)\b.{{0,20}}\b{categoria}\b|"
+            rf"\b(?:era|fui)\b.{{0,15}}\b{categoria}\b|"
+            rf"\bno\s+se\b.{{0,20}}\b{categoria}\b",
+            texto,
+        ):
+            continue
+        return True
+    return False
+
+
+def _cliente_planteo_empresa(messages: list) -> bool:
+    """Estado más reciente de la intención Empresa, sin confundir negaciones con pedidos."""
+    estado = False
+    for message in sorted(messages, key=lambda item: item.get("id") or 0):
+        if message.get("message_type") != 0 or message.get("private"):
+            continue
+        texto = _normalizar_control(message.get("content") or "")
+        if not re.search(
+            r"\b(?:empresa|cuit|monotributista|monotributo|responsable inscripto)\b",
+            texto,
+        ):
+            continue
+        descarta_empresa = bool(re.search(
+            r"\b(?:no|sin)\b.{0,20}\b(?:empresa|cuit|monotributista|monotributo|"
+            r"responsable inscripto)\b|"
+            r"\b(?:dni|consumidor final)\b.{0,20}\b(?:no empresa|sin cuit)\b",
+            texto,
+        ))
+        estado = not descarta_empresa
+    return estado
+
+
+def _campos_faltantes_derivacion(campos: dict, messages: list | None = None) -> list:
+    """Devuelve requisitos comerciales ausentes o inconsistentes, con reglas por modalidad."""
+    faltantes = []
+    tipo_portabilidad = _normalizar_control(campos.get("Tipo de portabilidad", ""))
+    tipo_cliente = _normalizar_control(campos.get("Tipo de cliente", ""))
+    es_linea_nueva = "linea nueva" in tipo_portabilidad
+    es_portabilidad = "portabilidad" in tipo_portabilidad and not es_linea_nueva
+    es_empresa = "empresa" in tipo_cliente
+    es_consumidor = "consumidor" in tipo_cliente
+
+    if not (es_linea_nueva or es_portabilidad):
+        faltantes.append("tipo de portabilidad")
+    if not (es_empresa or es_consumidor):
+        faltantes.append("tipo de cliente")
+
+    nombre = (campos.get("Nombre") or "").strip()
+    palabras_nombre = re.findall(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+", nombre)
+    if len(palabras_nombre) < 2:
+        faltantes.append("nombre completo del titular")
+
+    for clave, etiqueta in (
+        ("Plan elegido", "plan elegido"),
+        ("Localidad", "localidad"),
+        ("Provincia", "provincia"),
+        ("Dirección", "dirección"),
+        ("Código postal", "código postal"),
+    ):
+        if not (campos.get(clave) or "").strip():
+            faltantes.append(etiqueta)
+
+    planes = _split_planes(campos.get("Plan elegido", ""))
+    if planes and any(not re.search(r"\b(?:2|4|7|10|30|50)\s*gb\b", _normalizar_control(plan))
+                      for plan in planes):
+        faltantes.append("plan válido y confirmado")
+
+    if es_portabilidad:
+        compania = (campos.get("Compañía actual") or "").strip()
+        if not compania:
+            faltantes.append("compañía actual")
+        numeros = _split_numeros_a_portar(campos.get("Número a portar", ""))
+        if not numeros:
+            faltantes.append("número a portar")
+        elif planes and len(planes) != len(numeros):
+            faltantes.append("un plan confirmado por cada número a portar")
+
+    if es_empresa:
+        cuit = campos.get("CUIT", "")
+        if not _cuit_formato_valido(cuit):
+            faltantes.append("CUIT válido")
+        declarado = _normalizar_control(campos.get("CUIT activo declarado", ""))
+        if declarado not in {"si", "sí"}:
+            faltantes.append("confirmación de CUIT activo")
+        if messages is not None:
+            if not _cliente_confirmo_condicion_empresa(messages):
+                faltantes.append(
+                    "confirmación de que es monotributista o responsable inscripto"
+                )
+            if not _cliente_confirmo_cuit_activo(messages):
+                faltantes.append("confirmación escrita del cliente de que el CUIT está activo")
+
+    # Mantener orden estable y no repetir mensajes equivalentes.
+    return list(dict.fromkeys(faltantes))
+
+
+def _mensaje_ficha_incompleta(faltantes: list) -> str:
+    falta_categoria = any(
+        "monotributista o responsable inscripto" in campo for campo in faltantes
+    )
+    falta_activo = any(
+        "cuit" in _normalizar_control(campo) and "activo" in _normalizar_control(campo)
+        for campo in faltantes
+    )
+    if falta_categoria and falta_activo:
+        return (
+            "antes de avanzar confirmame por favor: ¿sos monotributista o responsable inscripto "
+            "y tenés el CUIT activo actualmente? Camila hace la validación final al cargar el alta"
+        )
+    if falta_categoria:
+        return (
+            "antes de avanzar necesito confirmar si sos monotributista o responsable inscripto. "
+            "los planes Empresa aplican únicamente a esas categorías y Camila hace la validación "
+            "final al cargar el alta"
+        )
+    if falta_activo:
+        return (
+            "antes de avanzar necesito confirmar algo: ¿tenés el CUIT activo actualmente? "
+            "los planes Empresa son para monotributistas o responsables inscriptos con CUIT "
+            "activo, y Camila hace la validación final cuando carga el alta"
+        )
+    visibles = [campo for campo in faltantes if campo not in {"tipo de portabilidad", "tipo de cliente"}]
+    detalle = ", ".join(visibles[:5] or faltantes[:5])
+    return f"antes de pasarte con Camila me falta confirmar {detalle}. me lo pasás porfa?"
+
+
 async def _get_contact_phone(conversation_id) -> str:
     """Número de WhatsApp del cliente, tomado de los metadatos de Chatwoot (no se le pregunta
     al cliente, ya lo tenemos porque es con el que nos está escribiendo)."""
@@ -4669,11 +4965,7 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
             and not _hay_contexto_de_otra_linea(messages)):
         return f"volvió a preguntar la compañía aunque el cliente ya informó: {', '.join(sorted(companias))}"
 
-    cliente_dijo_empresa = any(
-        re.search(r"\b(?:empresa|cuit|monotributista)\b", _texto_sin_tildes(m.get("content") or ""))
-        for m in messages
-        if m.get("message_type") == 0 and not m.get("private")
-    )
+    cliente_dijo_empresa = _cliente_planteo_empresa(messages)
     menciona_precio_concreto = re.search(
         r"\$\s*\d|\b(?:precio|abono|plan).{0,45}\d{1,3}[.\s]\d{3}\b|"
         r"\b\d{1,3}[.\s]\d{3}\s*(?:pesos|por mes)",
@@ -4681,6 +4973,30 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
     )
     if cliente_dijo_empresa and not companias and menciona_precio_concreto:
         return "dio un precio de Empresa antes de conocer la compañía de origen"
+
+    cuit_activo_confirmado = _cliente_confirmo_cuit_activo(messages)
+    if cliente_dijo_empresa and not cuit_activo_confirmado and menciona_precio_concreto:
+        pregunta_y_aclara = (
+            "cuit activo" in texto
+            and ("?" in respuesta or "validacion final" in texto or "camila" in texto)
+        )
+        if not pregunta_y_aclara:
+            return "ofreció precio Empresa sin confirmar CUIT activo ni aclarar la validación final"
+    if cliente_dijo_empresa and not cuit_activo_confirmado and re.search(
+        r"\bpasame\b.{0,90}\b(?:cuit|nombre completo|numero)\b|"
+        r"\bpara avanzar\b.{0,80}\b(?:cuit|datos|numero)\b",
+        texto,
+    ):
+        return "empezó el checklist Empresa sin confirmar antes que el CUIT esté activo"
+
+    if "cuit" in texto and re.search(
+        r"\blo que te dijeron no es correcto\b|"
+        r"\blo hacemos todo el tiempo\b|"
+        r"\b(?:se puede|podes hacerlo)\b.{0,70}\bsin (?:ningun )?problema\b|"
+        r"\btu cuit\b.{0,25}\b(?:esta|figura)\b.{0,15}\bactivo\b",
+        texto,
+    ):
+        return "garantizó sin verificar que el CUIT o el cambio a Empresa eran válidos"
 
     emails_invalidos_pendientes = []
     for message in _mensajes_entrantes_pendientes(messages):
@@ -5083,8 +5399,12 @@ _PEDIDO_REVISION = (
     "incluida la foto del DNI) y quiere pasarse a Claro, pero todavía NO se lo derivó (o se le "
     "pasó el link de Camila sin generar la ficha), respondé ÚNICAMENTE con la ficha interna "
     "completa (secciones 50/51/52), empezando exactamente con 'Hola Camila, quiero avanzar', sin "
-    "ningún otro texto. En CUALQUIER otro caso (falta algún dato, no quiere avanzar, ya es cliente "
-    "de Claro, es prepago, etc.) respondé ÚNICAMENTE: NO"
+    "ningún otro texto. Una consulta por un chip ya gestionado, seguimiento de envío, activación "
+    "o datos que el cliente dice haber pasado a otra asesora es POSTVENTA y NUNCA es una venta "
+    "nueva, aunque haya enviado fotos del DNI. En Empresa también tiene que haber confirmado por "
+    "escrito que es monotributista o responsable inscripto y que su CUIT está activo; Camila hará "
+    "la validación final. En CUALQUIER otro caso (falta algún dato, no quiere avanzar, ya es "
+    "cliente de Claro, es prepago, es postventa, etc.) respondé ÚNICAMENTE: NO"
 )
 
 
@@ -5103,7 +5423,7 @@ def _es_candidata_a_recuperar(messages: list) -> bool:
     """Filtro barato (sin llamar al modelo): el bot ya pidió datos del checklist y el cliente
     mandó dos imágenes distintas o un PDF -- las fotos del DNI se piden al final, así que sin
     el documento completo seguro falta algo."""
-    if not _cliente_confirmo_plan(messages):
+    if _es_contexto_postventa(messages) or not _cliente_confirmo_plan(messages):
         return False
     return _estado_fotos_dni(messages) == 2
 
@@ -5111,6 +5431,11 @@ def _es_candidata_a_recuperar(messages: list) -> bool:
 async def _revisar_conversacion_para_recuperar(conversation_id: int, messages: list):
     """Le hace releer la conversación al modelo (con las últimas fotos/PDF del cliente) y
     devuelve los campos de la ficha si hay una venta lista sin derivar, o None."""
+    if _es_contexto_postventa(messages):
+        logger.info(
+            f"Revisor de ventas: conversación {conversation_id} es postventa; no se recupera."
+        )
+        return None
     mensajes = sorted([m for m in messages if not m.get("private")], key=lambda m: m.get("id") or 0)
     con_adjunto = [m for m in mensajes if m.get("message_type") == 0 and m.get("attachments")]
     adjuntos = []
@@ -5128,7 +5453,14 @@ async def _revisar_conversacion_para_recuperar(conversation_id: int, messages: l
     if "Hola Camila, quiero avanzar" not in respuesta:
         return None
     campos = _parse_ficha_fields(respuesta[respuesta.index("Hola Camila, quiero avanzar"):])
-    return campos if campos.get("Nombre") else None
+    faltantes = _campos_faltantes_derivacion(campos, messages)
+    if faltantes:
+        logger.warning(
+            f"Revisor de ventas: conversación {conversation_id} produjo una ficha incompleta; "
+            f"no se registra. Faltan: {', '.join(faltantes)}"
+        )
+        return None
+    return campos
 
 
 async def _revisar_ventas_trabadas() -> None:
@@ -5928,6 +6260,17 @@ async def _registrar_derivacion_completa(conversation_id: int, campos: dict,
     reintentar) como para el barrido de los 5 minutos (que busca derivaciones SIN la etiqueta,
     y acá la etiqueta ya estaba). Poniendo la etiqueta al final: si el proceso muere antes de
     terminar de registrar, la conversación queda sin etiqueta y el barrido SÍ la detecta."""
+    if _es_contexto_postventa(all_messages):
+        raise DerivacionPostventaError(
+            f"Conversación {conversation_id}: es una consulta de postventa/envío; "
+            "no se registra como venta nueva"
+        )
+    faltantes = _campos_faltantes_derivacion(campos, all_messages)
+    if faltantes:
+        raise FichaIncompletaError(
+            f"Conversación {conversation_id}: ficha incompleta; faltan "
+            f"{', '.join(faltantes)}"
+        )
     foto_dni_frente, foto_dni_dorso = await _verificar_fotos_dni(all_messages)
     if not foto_dni_frente or not foto_dni_dorso:
         raise FotosDNIIncompletasError(
@@ -6100,15 +6443,91 @@ async def process_conversation(conversation_id: int) -> None:
             )
             reply = await _call_openrouter_respuesta_cliente(messages, all_messages)
 
-            # Bloqueo previo al handoff: aunque el modelo principal diga por error que vio las
-            # fotos, un verificador visual independiente confirma que los adjuntos sean realmente
-            # frente/dorso del DNI (o un único PDF/DNI digital con ambas caras). Contar archivos
-            # solamente no alcanza: podrían ser facturas o capturas comerciales.
+            # Un link a Camila también se usa legítimamente para postventa. Antes se trataba
+            # cualquier link como una venta: a Hugo (conv. 341) y Gabriela (Bot 5, conv. 115),
+            # que solo reclamaban un chip ya gestionado, se les pidieron fotos y se les creó una
+            # fila basura. En postventa se permite el contacto de soporte, pero se elimina una
+            # eventual ficha interna que el modelo haya inventado y nunca se activa el handoff.
+            es_postventa = _es_contexto_postventa(all_messages)
+            if es_postventa and "Hola Camila, quiero avanzar" in reply:
+                parte_publica = reply.split("Hola Camila, quiero avanzar", 1)[0].strip(" \n-")
+                reply = parte_publica or (
+                    "veo que esto es por un trámite que ya habías iniciado. para revisar el "
+                    f"estado del chip escribile a Camila por acá: {NUMERO_CAMILA}"
+                )
+
             intenta_derivar = (
                 "Hola Camila, quiero avanzar" in reply
                 or (NUMERO_CAMILA and NUMERO_CAMILA in reply)
             )
-            if intenta_derivar:
+
+            # Si el modelo mandó el link comercial sin la ficha, se la pedimos AHORA, antes de
+            # mostrarle el handoff al cliente. Así podemos validar todos los campos y no repetir
+            # el problema de Miguel/Hugo: link enviado y fila incompleta reconstruida después.
+            if intenta_derivar and not es_postventa and "Hola Camila, quiero avanzar" not in reply:
+                ficha_previa = ""
+                try:
+                    ficha_previa = await call_openrouter(messages + [
+                        {"role": "assistant", "content": reply},
+                        {"role": "user", "content": (
+                            "[Nota interna del sistema, NO es un mensaje del cliente] Antes de "
+                            "enviar esta derivación necesito validar la ficha. Respondé ÚNICAMENTE "
+                            "con la ficha interna completa de las secciones 50/51/52, empezando "
+                            "exactamente con 'Hola Camila, quiero avanzar'. No inventes campos; "
+                            "si falta cualquiera, respondé únicamente NO."
+                        )},
+                    ])
+                except Exception as e:
+                    logger.error(
+                        f"Conversación {conversation_id}: no se pudo generar la ficha previa al "
+                        f"handoff: {e}"
+                    )
+                if "Hola Camila, quiero avanzar" in ficha_previa:
+                    ficha_previa = ficha_previa[
+                        ficha_previa.index("Hola Camila, quiero avanzar"):]
+                    reply = f"{reply}\n---\n{ficha_previa}"
+                else:
+                    logger.warning(
+                        f"Conversación {conversation_id}: intentó enviar el link de Camila sin "
+                        "una ficha completa; se bloquea el handoff."
+                    )
+                    reply = (
+                        "antes de pasarte con Camila quiero repasar que no falte ningún dato. "
+                        "confirmame por favor el plan elegido y los datos del titular"
+                    )
+                    intenta_derivar = False
+
+            # Bloqueo previo al handoff: una ficha completa por texto y frente/dorso reales son
+            # dos condiciones independientes. Primero se validan todos los campos comerciales;
+            # después un verificador visual confirma que los adjuntos sean realmente el DNI.
+            fichas_propuestas = []
+            if "Hola Camila, quiero avanzar" in reply:
+                bubbles_propuestas = split_into_bubbles(reply)
+                bubbles_propuestas = [
+                    separada
+                    for bubble in bubbles_propuestas
+                    for separada in _separar_ficha_de_burbuja(bubble)
+                ]
+                fichas_propuestas = [
+                    _parse_ficha_fields(bubble)
+                    for bubble in bubbles_propuestas
+                    if "Hola Camila, quiero avanzar" in bubble
+                ]
+                faltantes = list(dict.fromkeys(
+                    faltante
+                    for campos in fichas_propuestas
+                    for faltante in _campos_faltantes_derivacion(campos, all_messages)
+                ))
+                if faltantes:
+                    logger.warning(
+                        f"Conversación {conversation_id}: el modelo intentó derivar con ficha "
+                        f"incompleta; se bloquea. Faltan: {', '.join(faltantes)}"
+                    )
+                    reply = _mensaje_ficha_incompleta(faltantes)
+                    intenta_derivar = False
+                    fichas_propuestas = []
+
+            if intenta_derivar and not es_postventa:
                 foto_frente_verificada, foto_dorso_verificada = await _verificar_fotos_dni(
                     all_messages
                 )
@@ -6246,7 +6665,9 @@ async def process_conversation(conversation_id: int) -> None:
     # le pide la ficha al modelo en una segunda llamada interna (no se le manda nada al cliente)
     # y se registra normalmente; si ni así sale, se avisa al dueño para cargarla a mano.
     if (NUMERO_CAMILA and NUMERO_CAMILA in reply and "Hola Camila, quiero avanzar" not in reply
-            and DERIVADO_LABEL not in (labels or []) and _cliente_confirmo_plan(all_messages)):
+            and DERIVADO_LABEL not in (labels or [])
+            and not _es_contexto_postventa(all_messages)
+            and _cliente_confirmo_plan(all_messages)):
         logger.warning(f"Conversación {conversation_id}: el bot derivó sin generar la ficha -- se "
                        f"le pide la ficha al modelo aparte.")
         ficha_recuperada = ""
