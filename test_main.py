@@ -471,9 +471,14 @@ class ReglasDeNegocioTest(unittest.TestCase):
             id=92,
             last_non_activity_message=last,
         )
-        self.assertTrue(main._es_candidata_followup_recuperado(conversation, ahora))
-        last["content_attributes"] = _metadata_bot(followup_closed=True)
+        # El mecanismo queda cubierto para una eventual reactivación, pero en producción está
+        # forzado a apagado y por eso nunca selecciona candidatos por defecto.
         self.assertFalse(main._es_candidata_followup_recuperado(conversation, ahora))
+        with patch.object(main, "FOLLOWUP_ENABLED", True):
+            self.assertTrue(main._es_candidata_followup_recuperado(conversation, ahora))
+        last["content_attributes"] = _metadata_bot(followup_closed=True)
+        with patch.object(main, "FOLLOWUP_ENABLED", True):
+            self.assertFalse(main._es_candidata_followup_recuperado(conversation, ahora))
 
     def test_no_habilita_seguimiento_por_audio_ilegible_o_pedido_de_tiempo(self):
         solo_audio = [

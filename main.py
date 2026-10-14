@@ -3050,11 +3050,11 @@ PORT = int(os.getenv("PORT", "8000"))
 # hay una pausa real más larga que lo que tarda una generación completa.
 MSG_DEBOUNCE_SECONDS = float(os.getenv("MSG_DEBOUNCE_SECONDS", "0"))
 
-# Seguimiento automático: solo para clientes que ya empezaron a pasar datos. Se permiten como
-# máximo dos en toda la conversación y nunca se encadenan: para llegar al segundo, el cliente
-# tiene que haber respondido al primero y luego volver a quedar en silencio. El contador queda
-# guardado en los metadatos de los mensajes de Chatwoot, así sobrevive a un redeploy.
-FOLLOWUP_ENABLED = os.getenv("FOLLOWUP_ENABLED", "true").lower() == "true"
+# Seguimientos automáticos desactivados globalmente por decisión comercial (14/10/2026).
+# Se fuerza en código para que ninguna instancia vuelva a enviarlos aunque en un Environment
+# viejo de EasyPanel todavía haya quedado FOLLOWUP_ENABLED=true. El barrido de mensajes entrantes
+# sin responder sigue activo: eso recupera respuestas perdidas, no inicia seguimientos.
+FOLLOWUP_ENABLED = False
 FOLLOWUP_DELAY_MIN_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MIN_SECONDS", "2700"))  # 45 min
 FOLLOWUP_DELAY_MAX_SECONDS = float(os.getenv("FOLLOWUP_DELAY_MAX_SECONDS", "3600"))  # 60 min
 FOLLOWUP_MAX_PER_CONVERSATION = int(os.getenv("FOLLOWUP_MAX_PER_CONVERSATION", "2"))
@@ -5231,7 +5231,8 @@ def _es_candidata_followup_recuperado(conversation: dict, ahora: float | None = 
     created_at = float(last.get("created_at") or 0)
     edad = ahora - created_at
     return bool(
-        conversation.get("id")
+        FOLLOWUP_ENABLED
+        and conversation.get("id")
         and PAUSE_LABEL not in labels
         and DERIVADO_LABEL not in labels
         and conversation.get("status") not in {"resolved", "closed", "snoozed"}
