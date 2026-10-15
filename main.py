@@ -4180,19 +4180,40 @@ def _split_planes(texto: str) -> list:
     return [p.strip() for p in partes if p.strip()]
 
 
+def _clave_registro_sheets(numero: str, telefono: str, nombre: str = "",
+                           documento: str = "", plan: str = "") -> tuple:
+    """Clave estable para distinguir una venta ya cargada de otra legítima.
+
+    En portabilidad alcanza con (número a portar, teléfono de contacto). En línea nueva no hay
+    número asignado: antes todas las altas gestionadas desde el mismo WhatsApp producían la
+    misma clave vacía y la segunda persona pisaba la fila de la primera. Para línea nueva se
+    incorpora el documento del titular; nombre+plan quedan como respaldo si faltara el documento.
+    """
+    numero_digitos = _digits_only(numero)[-10:]
+    telefono_digitos = _digits_only(telefono)[-10:]
+    if numero_digitos:
+        return ("portabilidad", numero_digitos, telefono_digitos)
+    documento_digitos = _digits_only(documento)
+    if documento_digitos:
+        return ("linea_nueva", telefono_digitos, documento_digitos)
+    return ("linea_nueva_sin_documento", telefono_digitos,
+            _normalizar_control(nombre), _normalizar_control(plan))
+
+
 async def _pares_numero_telefono_existentes() -> set:
-    """Lee las columnas U (NUMERO A PORTAR) y V (NUMERO DE CONTACTO) de todo el Sheet y arma el
-    set de pares (número, teléfono) ya cargados, comparando solo dígitos (para no fallar por
-    formato: con o sin '+', espacios, etc.). Se usa para no duplicar una fila que ya existe (ver
-    log_to_google_sheets). Si falla la lectura, devuelve un set vacío (no bloquea la carga por
-    un problema de red puntual -- prefiere el riesgo chico de una fila duplicada al de perder
-    una venta real por no poder chequear)."""
+    """Lee las filas existentes y arma sus claves de deduplicación.
+
+    Para portabilidades usa número+teléfono. Para líneas nuevas usa teléfono+documento del
+    titular, porque varias personas pueden pedir chips nuevos desde un mismo WhatsApp. Si falla
+    la lectura, devuelve un set vacío: se prefiere el riesgo menor de un duplicado al de perder
+    una venta real por no poder chequear.
+    """
     if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
         return set()
     token = await _get_sheets_access_token()
     if not token:
         return set()
-    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!U:V", safe="")
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:W", safe="")
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
         f"/values/{encoded_range}"
@@ -4203,14 +4224,15 @@ async def _pares_numero_telefono_existentes() -> set:
             resp.raise_for_status()
             filas = resp.json().get("values", []) or []
     except Exception as e:
-        logger.error(f"No se pudo leer U:V de Sheets para chequear duplicados: {e}")
+        logger.error(f"No se pudo leer A:W de Sheets para chequear duplicados: {e}")
         return set()
 
     pares = set()
     for fila in filas[1:]:  # salta el header
-        numero = fila[0] if len(fila) > 0 else ""
-        telefono = fila[1] if len(fila) > 1 else ""
-        pares.add((_digits_only(numero), _digits_only(telefono)))
+        valor = lambda indice: fila[indice] if len(fila) > indice else ""
+        pares.add(_clave_registro_sheets(
+            valor(20), valor(21), valor(5), valor(6), valor(22)
+        ))
     return pares
 
 
@@ -4223,8 +4245,8 @@ _COLUMNAS_DEL_TITULAR = [6, 7]  # DNI y F. nac: si cambia el titular, los viejos
 
 
 async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> bool:
-    """Cuando llega una ficha para un (número a portar, teléfono) que YA tiene fila, actualiza
-    esa fila con los datos que cambiaron, en vez de descartar la ficha nueva entera.
+    """Cuando llega una ficha cuya clave de venta YA tiene fila, actualiza esa fila con los
+    datos que cambiaron, en vez de descartar la ficha nueva entera.
 
     Caso real (02/10/2026, Bot 2): la clienta dio un nombre ("Dolores Ortiga"), se cargó la
     fila, y después aclaró que la titular era otra persona (Margarita de la Cruz Alvarez, la
@@ -4245,25 +4267,30 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> b
     headers = {"Authorization": f"Bearer {token}"}
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!U:V', safe='')}",
-                                    headers=headers)
+            # Se lee A:W para poder distinguir dos líneas nuevas de personas distintas que
+            # escribieron desde el mismo número de contacto (caso real 11/10/2026: Verónica
+            # Píriz y Norma Cabrera). La clave vieja U+V hizo que una venta pisara la otra.
+            resp = await client.get(
+                f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!A:W', safe='')}",
+                headers=headers,
+                params={"valueRenderOption": "FORMULA"},
+            )
             resp.raise_for_status()
             filas = resp.json().get("values", []) or []
-            clave = (_digits_only(numero), _digits_only(telefono))
+            clave = _clave_registro_sheets(numero, telefono, row[5], row[6], row[22])
             fila_n = None
             for idx in range(len(filas) - 1, 0, -1):  # la más reciente primero, salta el header
                 f = filas[idx]
-                if (_digits_only(f[0] if f else ""), _digits_only(f[1] if len(f) > 1 else "")) == clave:
+                valor = lambda indice: f[indice] if len(f) > indice else ""
+                if _clave_registro_sheets(
+                    valor(20), valor(21), valor(5), valor(6), valor(22)
+                ) == clave:
                     fila_n = idx + 1
                     break
             if fila_n is None:
                 return False
-            # FORMULA para comparar las fotos por su =HYPERLINK(...) y no por el texto visible.
-            resp = await client.get(
-                f"{base}/{quote(f'{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}:W{fila_n}', safe='')}",
-                headers=headers, params={"valueRenderOption": "FORMULA"})
-            resp.raise_for_status()
-            actual = (resp.json().get("values") or [[]])[0]
+            # Ya se leyó con FORMULA para comparar los =HYPERLINK(...) completos.
+            actual = filas[fila_n - 1]
 
             def _normalizar(v) -> str:
                 return str(v).strip().lstrip("'").strip()
@@ -4368,13 +4395,11 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
         return False
 
     # Chequeo de duplicados (17/09/2026, caso real: Patricia Susana Deheza quedó cargada DOS
-    # veces, 6 filas para 3 números -- una carrera entre dos webhooks casi simultáneos, cada uno
-    # generando y registrando su propia ficha completa). Antes de agregar cada fila, se chequea
-    # si YA existe una fila con el mismo (número a portar, número de contacto) -- si existe, no
-    # se duplica: se actualiza esa fila con lo que haya cambiado (ver _actualizar_fila_existente,
-    # caso real 02/10/2026 de una ficha corregida que se perdía). No bloquea por conversación entera (eso
-    # rompería el caso legítimo de una segunda línea agregada más tarde en la misma charla), solo
-    # evita repetir la MISMA línea ya cargada.
+    # veces, 6 filas para 3 números -- una carrera entre dos webhooks casi simultáneos). Para
+    # portabilidad se usa (número a portar, teléfono). Para línea nueva se usa el documento del
+    # titular: si no, dos personas que piden chips desde el mismo WhatsApp se pisan
+    # entre sí (caso Verónica Píriz / Norma Cabrera, detectado el 15/10/2026). Si la MISMA clave
+    # ya existe, no se duplica: se actualiza con los datos que hayan cambiado.
     ya_cargados = await _pares_numero_telefono_existentes()
 
     pendiente_foto = "Pendiente con Camila" if foto_dni_pendiente else ""
@@ -4411,7 +4436,6 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
     es_linea_nueva = "nueva" in campos.get("Tipo de portabilidad", "").lower()
 
     for i, numero in enumerate(numeros):
-        clave = (_digits_only(numero), _digits_only(telefono))
         plan_fila = plan_por_numero[i] if plan_por_numero else campos.get("Plan elegido", "")
         row = [
             "",  # Estado (lo completa el equipo)
@@ -4439,6 +4463,7 @@ async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: st
             _valor_seguro_sheets(plan_fila),
             # Nada más acá: Num seguimiento correo / PIN / Observaciones x2 quedan sin tocar.
         ]
+        clave = _clave_registro_sheets(numero, telefono, row[5], row[6], row[22])
         if clave in ya_cargados:
             # Ya hay fila para esta línea: no se duplica, pero si la ficha trae datos corregidos
             # (otro titular, otra foto, otra dirección...) se actualiza esa fila.

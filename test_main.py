@@ -332,6 +332,30 @@ class ReglasDeNegocioTest(unittest.TestCase):
             "tu plan incluye [10 GB] por mes",
         )
 
+    def test_dos_lineas_nuevas_del_mismo_contacto_no_se_pisan(self):
+        veronica = main._clave_registro_sheets(
+            "LÍNEA NUEVA", "+5493624030510", "Piriz Verónica Vanesa", "31142619", "2 GB"
+        )
+        norma = main._clave_registro_sheets(
+            "LÍNEA NUEVA", "+5493624030510", "Cabrera Norma Graciela", "23273999", "30 GB"
+        )
+        self.assertNotEqual(veronica, norma)
+        self.assertEqual(
+            veronica,
+            main._clave_registro_sheets(
+                "linea nueva", "3624030510", "OTRO ORDEN DE NOMBRE", "31.142.619", "30 gb"
+            ),
+        )
+
+    def test_portabilidad_se_deduplica_por_numero_y_contacto(self):
+        primera = main._clave_registro_sheets(
+            "2235550000", "+5492236000000", "Titular Uno", "30111222", "4 GB"
+        )
+        corregida = main._clave_registro_sheets(
+            "223-555-0000", "2236000000", "Otro nombre", "40999888", "30 GB"
+        )
+        self.assertEqual(primera, corregida)
+
     def test_filtra_respuestas_en_ingles_aunque_no_parezcan_razonamiento(self):
         casos = [
             "Hello! How can I help you today?",
@@ -891,6 +915,38 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row[10], "Pendiente con Camila")
         self.assertEqual(row[21], "'+5492200000000")
         self.assertEqual(len(row), 23)
+
+    async def test_sheets_agrega_segunda_linea_nueva_de_otro_titular_mismo_contacto(self):
+        telefono = "+5493624030510"
+        clave_veronica = main._clave_registro_sheets(
+            "LÍNEA NUEVA", telefono, "Piriz Verónica Vanesa", "31142619", "2 GB"
+        )
+        ficha_norma = {
+            "Tipo de portabilidad": "Línea nueva",
+            "Tipo de cliente": "Consumidor final",
+            "Nombre": "Cabrera Norma Graciela",
+            "DNI": "23273999",
+            "Plan elegido": "30 GB",
+            "Localidad": "Puerto Vilelas",
+            "Provincia": "Chaco",
+            "Dirección": "Barrio Independencia Mz. 31 Pc. 28",
+            "Código postal": "3503",
+        }
+        append = AsyncMock(return_value="Hoja 1!A10:W10")
+        actualizar = AsyncMock(return_value=True)
+        with (
+            patch.object(main, "GOOGLE_SHEETS_CREDENTIALS_JSON", "{}"),
+            patch.object(main, "GOOGLE_SHEETS_SPREADSHEET_ID", "planilla"),
+            patch.object(main, "_pares_numero_telefono_existentes",
+                         AsyncMock(return_value={clave_veronica})),
+            patch.object(main, "append_google_sheets_row", append),
+            patch.object(main, "_actualizar_fila_existente", actualizar),
+            patch.object(main, "_forzar_links_visibles", AsyncMock()),
+        ):
+            ok = await main.log_to_google_sheets(ficha_norma, telefono)
+        self.assertTrue(ok)
+        append.assert_awaited_once()
+        actualizar.assert_not_awaited()
 
     async def test_fotos_posteriores_actualizan_todas_las_filas_sin_agregar_ventas(self):
         encabezado = [""] * 23
