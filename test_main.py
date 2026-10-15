@@ -301,6 +301,37 @@ class ReglasDeNegocioTest(unittest.TestCase):
             "perfecto, me falta solamente la foto del dorso"
         ))
 
+    def test_filtra_narracion_de_silencio_observada_en_bot3(self):
+        casos = [
+            '*Valentina no responde. El "Gracias" del cliente cierra la conversación.*',
+            "Valentina no responde. El usuario continúa con comentarios políticos.",
+            "El bot no responde porque la conversación comercial ha concluido.",
+        ]
+        for texto in casos:
+            with self.subTest(texto=texto):
+                self.assertTrue(main._tiene_razonamiento_filtrado(texto))
+
+    def test_filtra_marcador_de_ficha_interna_observado_en_bot4(self):
+        texto = (
+            "ya le pasé tus datos a mi jefa\n\n"
+            "*[Ficha interna generada para el equipo. El cliente no ve este mensaje.]*"
+        )
+        self.assertTrue(main._tiene_razonamiento_filtrado(texto))
+
+    def test_sanitiza_marcadores_internos_antes_del_envio(self):
+        texto = (
+            "ya le pasé todos tus datos a mi jefa.\n\n"
+            "*[Ficha interna generada para el equipo. El cliente no ve este mensaje.]*"
+        )
+        self.assertEqual(
+            main._sanitizar_burbuja_publica(texto),
+            "ya le pasé todos tus datos a mi jefa.",
+        )
+        self.assertEqual(
+            main._sanitizar_burbuja_publica("tu plan incluye [10 GB] por mes"),
+            "tu plan incluye [10 GB] por mes",
+        )
+
     def test_filtra_respuestas_en_ingles_aunque_no_parezcan_razonamiento(self):
         casos = [
             "Hello! How can I help you today?",

@@ -2215,10 +2215,16 @@ adelante, no hace falta nada especial, es una corrección normal de la charla.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Esta ficha la seguís generando SIEMPRE igual que antes cuando el checklist está completo — es
-lo que el sistema usa para registrar la venta (Sheets) y queda guardada como nota interna en
-Chatwoot. El cliente NO la ve ni tiene que copiarla ni reenviarla — eso ya se lo explicaste con
-el mensaje simple de la sección 49. Generala en el mismo turno, como una burbuja más de tu
-respuesta (el sistema se encarga de que no salga por WhatsApp).
+lo que el sistema usa para registrar la venta (Sheets). El sistema la procesa en memoria y la
+quita antes de enviar la respuesta: NO queda guardada como nota ni mensaje en Chatwoot. El
+cliente NO la ve ni tiene que copiarla ni reenviarla — eso ya se lo explicaste con el mensaje
+simple de la sección 49. Generala en el mismo turno, como una burbuja más de tu respuesta (el
+sistema se encarga de que no salga por WhatsApp).
+
+IMPORTANTE: generá la ficha REAL directamente, empezando exactamente con "Hola Camila, quiero
+avanzar". NUNCA la reemplaces ni la acompañes con descripciones como "[Ficha interna
+generada]", "[Nota interna]", "el cliente no ve este mensaje", "solo para el equipo" ni ningún
+texto parecido. Tampoco anuncies que la generaste: después de la ficha no escribas nada.
 
 Generar:
 
@@ -2811,7 +2817,8 @@ lunes a viernes de 8 a 19hs, así que te responde apenas esté disponible. si qu
 mandándome las fotos del frente y dorso del DNI para adelantar; si no, lo terminás con ella
 directamente"
 
-FICHA INTERNA (se genera igual, queda como nota interna, el cliente NO la ve):
+FICHA INTERNA (se genera igual y el sistema la procesa en memoria; NO queda como nota o mensaje
+en Chatwoot y el cliente NO la ve):
 
 "Hola Camila, quiero avanzar con mi portabilidad a Claro.
 
@@ -4779,6 +4786,10 @@ _PATRONES_META_SIN_RESPUESTA = (
     "se espera a que el cliente", "no hace falta responder",
     "no es necesario responder", "no se requiere respuesta",
     "no se necesita responder", "sin enviar respuesta",
+    "valentina no responde", "el bot no responde", "el asistente no responde",
+    "el usuario continúa con comentarios", "el usuario continua con comentarios",
+    "se mantiene el silencio", "la conversación comercial ha concluido",
+    "la conversacion comercial ha concluido",
 )
 
 _INICIOS_RAZONAMIENTO_INTERNO_ES = (
@@ -4866,9 +4877,20 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     inicio_sin_markdown = t.lstrip("*_#` >\n\t")
     inicio_sin_markdown = re.sub(r"^(?:\d+[.)\-:]\s*)+", "", inicio_sin_markdown)
     inicio_sin_tildes = _texto_sin_tildes(inicio_sin_markdown)
+    texto_sin_tildes = _texto_sin_tildes(t)
     if re.search(
         r"\[(?:internal[_ ]?note|nota[_ ]?interna|control[_ ]?interno|analysis|thinking)\]",
         t,
+    ):
+        return True
+    # Caso real (14/10/2026): después del mensaje comercial correcto, el modelo agregó
+    # "[Ficha interna generada para el equipo. El cliente no ve este mensaje.]". No era la
+    # ficha parseable y terminó como una burbuja pública. Se bloquea cualquier descripción de
+    # contenido interno aunque cambie levemente la redacción.
+    if re.search(
+        r"\[[^\]\r\n]{0,240}(?:ficha interna|nota interna|mensaje interno|contenido interno|"
+        r"cliente no (?:ve|vera) este mensaje|solo para (?:el )?equipo)[^\]\r\n]{0,240}\]",
+        texto_sin_tildes,
     ):
         return True
     if any(marca in t for marca in ("<analysis", "</analysis>", "<thinking", "</thinking>")):
@@ -4885,6 +4907,29 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     if _parece_texto_en_ingles(texto):
         return True
     return any(p in t for p in _PATRONES_META_SIN_RESPUESTA)
+
+
+def _sanitizar_burbuja_publica(texto: str) -> str:
+    """Quita marcadores internos descriptivos antes del último paso de envío.
+
+    La respuesta completa ya se rechaza y regenera en ``call_openrouter`` si contiene uno de
+    estos marcadores. Esta función es una segunda barrera para textos agregados o transformados
+    después de esa validación: jamás debe llegar al cliente una leyenda sobre fichas/notas
+    internas. No elimina la ficha real, que se separa y omite por su marcador propio.
+    """
+    def _reemplazar_bloque(match: re.Match) -> str:
+        contenido = _texto_sin_tildes(match.group(0))
+        indicadores = (
+            "ficha interna", "nota interna", "mensaje interno", "contenido interno",
+            "cliente no ve este mensaje", "cliente no vera este mensaje",
+            "solo para el equipo",
+        )
+        return "" if any(indicador in contenido for indicador in indicadores) else match.group(0)
+
+    limpio = re.sub(r"[*_`]*\[[^\]]{1,600}\][*_`]*", _reemplazar_bloque, texto or "")
+    limpio = re.sub(r"(?m)^[ \t]*-{3,}[ \t]*$", "", limpio)
+    limpio = re.sub(r"\n{3,}", "\n\n", limpio)
+    return limpio.strip()
 
 
 def _texto_sin_tildes(texto: str) -> str:
@@ -6771,11 +6816,26 @@ async def process_conversation(conversation_id: int) -> None:
 
             bubbles = split_into_bubbles(reply)
             bubbles = [b2 for b in bubbles for b2 in _separar_ficha_de_burbuja(b)]
+            bubbles_publicas = []
+            for bubble in bubbles:
+                if "Hola Camila, quiero avanzar" in bubble:
+                    continue
+                bubble_publica = _sanitizar_burbuja_publica(bubble)
+                if not bubble_publica:
+                    continue
+                # Última barrera, inmediatamente antes de cualquier envío. Validar todas las
+                # burbujas primero evita mandar una parte sana y recién después descubrir una
+                # narración interna en otra burbuja.
+                if _tiene_razonamiento_filtrado(bubble_publica):
+                    raise RuntimeError(
+                        "la respuesta pública contenía razonamiento o una nota interna"
+                    )
+                bubbles_publicas.append(bubble_publica)
             logger.info(f"Conversación {conversation_id}: agrupé {len(batch)} mensaje(s) entrante(s) "
                         f"({', '.join(kinds)}) y respondo en {len(bubbles)} burbuja(s) "
                         f"(cierra_seguimiento={close_followups}): {reply[:200]!r}")
 
-            for bubble in bubbles:
+            for bubble in bubbles_publicas:
                 # La ficha de datos ("Hola Camila, quiero avanzar...") ya NO se le manda al cliente
                 # como mensaje real -- a pedido explícito, se cambió el flujo para que el cliente ya
                 # no tenga que copiar/reenviar nada (sección 49/53). El modelo la sigue generando igual
@@ -6786,8 +6846,6 @@ async def process_conversation(conversation_id: int) -> None:
                 # candado... se puede sacar?") se dejó de mandar del todo, ni siquiera como nota
                 # privada -- antes se mandaba con private=True (aparecía con el ícono de candado en
                 # Chatwoot) solo como referencia visual, pero no cumplía ninguna función real.
-                if "Hola Camila, quiero avanzar" in bubble:
-                    continue
                 metadata_respuesta = {
                     "data": {
                         FOLLOWUP_METADATA_KEY: {
