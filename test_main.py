@@ -894,7 +894,7 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
         label.assert_awaited_once_with(12, main.DERIVADO_LABEL)
 
     async def test_sheets_marca_ambas_fotos_pendientes_con_camila(self):
-        append = AsyncMock(return_value="Hoja 1!A10:W10")
+        append = AsyncMock(return_value="Hoja 1!A10:Z10")
         with (
             patch.object(main, "GOOGLE_SHEETS_CREDENTIALS_JSON", "{}"),
             patch.object(main, "GOOGLE_SHEETS_SPREADSHEET_ID", "planilla"),
@@ -909,12 +909,20 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertTrue(ok)
         row = append.await_args.args[0]
-        self.assertRegex(row[3], r"^'\d{2}:\d{2}$")
-        self.assertRegex(row[4], r"^\d{2}/\d{2}/\d{4}$")
-        self.assertEqual(row[9], "Pendiente con Camila")
-        self.assertEqual(row[10], "Pendiente con Camila")
-        self.assertEqual(row[21], "'+5492200000000")
-        self.assertEqual(len(row), 23)
+        self.assertEqual(row[2:6], ["", "", "", ""])
+        self.assertRegex(row[6], r"^'\d{2}:\d{2}$")
+        self.assertRegex(row[7], r"^\d{2}/\d{2}/\d{4}$")
+        self.assertEqual(row[8], "Ana María Pérez")
+        self.assertEqual(row[12], "Pendiente con Camila")
+        self.assertEqual(row[13], "Pendiente con Camila")
+        self.assertEqual(row[15:20], [
+            "Movistar", "Consumidor final", "Buenos Aires", "Mar del Plata",
+            "San Martín 1234",
+        ])
+        self.assertEqual(row[22:26], [
+            "7600", "2235551234", "'+5492200000000", "4 GB",
+        ])
+        self.assertEqual(len(row), 26)
 
     async def test_sheets_agrega_segunda_linea_nueva_de_otro_titular_mismo_contacto(self):
         telefono = "+5493624030510"
@@ -932,7 +940,7 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             "Dirección": "Barrio Independencia Mz. 31 Pc. 28",
             "Código postal": "3503",
         }
-        append = AsyncMock(return_value="Hoja 1!A10:W10")
+        append = AsyncMock(return_value="Hoja 1!A10:Z10")
         actualizar = AsyncMock(return_value=True)
         with (
             patch.object(main, "GOOGLE_SHEETS_CREDENTIALS_JSON", "{}"),
@@ -949,12 +957,12 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
         actualizar.assert_not_awaited()
 
     async def test_fotos_posteriores_actualizan_todas_las_filas_sin_agregar_ventas(self):
-        encabezado = [""] * 23
-        fila_1 = [""] * 23
-        fila_2 = [""] * 23
-        fila_1[9] = fila_1[10] = "Pendiente con Camila"
-        fila_2[9] = fila_2[10] = "Pendiente con Camila"
-        fila_1[21] = fila_2[21] = "+5492200000000"
+        encabezado = [""] * 26
+        fila_1 = [""] * 26
+        fila_2 = [""] * 26
+        fila_1[12] = fila_1[13] = "Pendiente con Camila"
+        fila_2[12] = fila_2[13] = "Pendiente con Camila"
+        fila_1[24] = fila_2[24] = "+5492200000000"
 
         respuesta_get = MagicMock()
         respuesta_get.json.return_value = {"values": [encabezado, fila_1, fila_2]}
@@ -979,7 +987,7 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual((filas, cambios), (2, 4))
         rangos = [item["range"] for item in cliente.post.await_args.kwargs["json"]["data"]]
-        self.assertEqual(rangos, ["Hoja 1!J2", "Hoja 1!K2", "Hoja 1!J3", "Hoja 1!K3"])
+        self.assertEqual(rangos, ["Hoja 1!M2", "Hoja 1!N2", "Hoja 1!M3", "Hoja 1!N3"])
         self.assertEqual(forzar.await_count, 2)
 
     async def test_registro_con_una_cara_conserva_la_foto_recibida(self):
