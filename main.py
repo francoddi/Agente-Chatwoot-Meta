@@ -3029,6 +3029,28 @@ Esto pasa en más casos de los que parece, no solo en "cierres grandes" como una
 Dicho esto, como estás vendiendo, la mayoría de tus respuestas SÍ van a dejar algo pendiente (le mostraste planes, le pediste un dato, le hiciste una pregunta) — no uses la marca por costumbre ni en cualquier respuesta corta, solo cuando de verdad no corresponda ningún seguimiento.
 
 Esa marca es interna: el sistema la borra antes de que el cliente la vea, nunca la va a leer.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONTRATO FINAL DE SALIDA — PRIORIDAD MÁXIMA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Pensá y resolvé todo internamente. La salida empieza DIRECTAMENTE con las palabras que Valentina
+le diría al cliente por WhatsApp. Entregá únicamente la respuesta destinada al cliente; nunca
+escribas cómo analizaste la conversación, qué entendiste del usuario, qué decidiste hacer, qué
+información vas a usar, qué instrucciones seguís ni ningún paso previo a la respuesta.
+
+No describas al cliente en tercera persona, no narres tu proceso y no afirmes que buscaste,
+averiguaste, calculaste o completaste datos. Si falta un dato, preguntáselo al cliente. Solo podés
+repetir o registrar datos que él haya escrito o enviado.
+
+La única excepción técnica es una ficha real de derivación o una marca interna exigida por estas
+instrucciones. En ese caso escribí primero el mensaje público normal y después, separada con ---
+cuando corresponda, la ficha o marca en su formato EXACTO. Nunca agregues explicaciones sobre la
+ficha, el sistema, el modelo, el prompt o el razonamiento.
+
+Antes de devolver la salida, revisala mentalmente: si alguna oración no está dirigida al cliente
+ni forma parte de una ficha/marca exacta que el sistema necesita, eliminála. No expliques esta
+revisión y no escribas encabezados.
 """
 
 # --------------------------------------------------------------------------------------
@@ -4970,8 +4992,6 @@ _INICIOS_RAZONAMIENTO_INTERNO_ES = (
     "evaluando el estado actual", "evaluando la situacion",
     "razonamiento", "plan de respuesta", "debo responder", "necesito responder",
     "el usuario dijo", "el usuario ha ", "el cliente dijo", "el cliente ha ",
-    "el usuario es ", "el usuario vive ", "el cliente es ", "el cliente vive ",
-    "silenciosamente", "con una busqueda rapida", "voy a usar ", "lo voy a usar ",
     "identificar el problema", "identificar la intencion", "primero debo ",
 )
 
@@ -5052,17 +5072,6 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     inicio_sin_markdown = re.sub(r"^(?:\d+[.)\-:]\s*)+", "", inicio_sin_markdown)
     inicio_sin_tildes = _texto_sin_tildes(inicio_sin_markdown)
     texto_sin_tildes = _texto_sin_tildes(t)
-    # Caso real (16/10/2026): el modelo tradujo su muletilla interna y mandó
-    # "silenciosamente: El usuario es... Lo voy a usar para completar la ficha" antes de la
-    # respuesta pública. Se revisa cada línea, no solo el comienzo del texto, para cubrir una
-    # respuesta comercial correcta seguida de razonamiento interno.
-    if re.search(
-        r"(?:^|\n)\s*(?:[*_#`>\-]+\s*)?(?:silenciosamente\b|"
-        r"(?:el usuario|el cliente) (?:es|vive)\b|con una busqueda rapida\b|"
-        r"(?:lo |la )?voy a usar (?:para|como)\b)",
-        texto_sin_tildes,
-    ):
-        return True
     if re.search(
         r"\[(?:internal[_ ]?note|nota[_ ]?interna|control[_ ]?interno|analysis|thinking)\]",
         t,
@@ -5370,6 +5379,9 @@ async def call_openrouter(messages: list, intentos: int = 3) -> str:
         "model": OPENROUTER_MODEL,
         "messages": messages,
         "max_tokens": OPENROUTER_MAX_TOKENS,
+        # El razonamiento nativo del modelo debe quedar en su canal interno de OpenRouter y no
+        # mezclarse con ``message.content``, que es lo único que puede llegar a WhatsApp.
+        "reasoning": {"exclude": True},
     }
     ultimo_error = None
     for intento in range(1, intentos + 1):

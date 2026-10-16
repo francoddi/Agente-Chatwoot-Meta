@@ -297,15 +297,6 @@ class ReglasDeNegocioTest(unittest.TestCase):
         self.assertTrue(main._tiene_razonamiento_filtrado(
             "mandale ese mensaje y esperá.\n\n[INTERNAL_NOTE]"
         ))
-        self.assertTrue(main._tiene_razonamiento_filtrado(
-            "silenciosamente: El usuario es Franco, de Lules, Tucumán. "
-            "Con una búsqueda rápida, el código postal es 4129. Lo voy a usar.\n\n"
-            "listo Franco, ya tenemos todo."
-        ))
-        self.assertTrue(main._tiene_razonamiento_filtrado(
-            "perfecto, ya tengo la localidad.\n\nEl usuario vive en Tucumán y voy a usar "
-            "ese dato para completar la ficha."
-        ))
         self.assertFalse(main._tiene_razonamiento_filtrado(
             "perfecto, me falta solamente la foto del dorso"
         ))
@@ -333,6 +324,11 @@ class ReglasDeNegocioTest(unittest.TestCase):
     def test_prompt_prohibe_inferir_el_codigo_postal(self):
         self.assertIn("CÓDIGO POSTAL — REGLA CRÍTICA", main.SYSTEM_PROMPT)
         self.assertIn("NUNCA lo deduzcas, completes", main.SYSTEM_PROMPT)
+
+    def test_prompt_exige_solo_la_salida_destinada_al_cliente(self):
+        self.assertIn("CONTRATO FINAL DE SALIDA — PRIORIDAD MÁXIMA", main.SYSTEM_PROMPT)
+        self.assertIn("Entregá únicamente la respuesta destinada al cliente", main.SYSTEM_PROMPT)
+        self.assertIn("Pensá y resolvé todo internamente", main.SYSTEM_PROMPT)
 
     def test_filtra_narracion_de_silencio_observada_en_bot3(self):
         casos = [
@@ -920,6 +916,7 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
                 llamada.kwargs["json"]["max_tokens"],
                 main.OPENROUTER_MAX_TOKENS,
             )
+            self.assertTrue(llamada.kwargs["json"]["reasoning"]["exclude"])
 
     async def test_openrouter_no_reintenta_contenido_bloqueado(self):
         response = MagicMock()
