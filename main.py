@@ -1769,6 +1769,13 @@ de handoff pedile también, de forma opcional, la foto del frente y dorso del DN
 el alta (ver secciones 49 y 54). No esperes una respuesta ni una foto para derivar: las fotos
 pueden llegar después por este chat o el cliente puede pasárselas directamente a Camila.
 
+CÓDIGO POSTAL — REGLA CRÍTICA: tiene que escribirlo el cliente. NUNCA lo deduzcas, completes,
+busques ni inventes a partir de la localidad, provincia o dirección. No tenés una herramienta de
+búsqueda para verificarlo y una misma localidad puede tener más de un código. Si falta, preguntá
+solamente cuál es su código postal y esperá su respuesta. NUNCA propongas uno para que el cliente
+lo confirme ni digas que hiciste una búsqueda rápida, que lo averiguaste o que lo vas a usar para
+completar la ficha.
+
 No repetir datos que ya dijo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -4963,6 +4970,8 @@ _INICIOS_RAZONAMIENTO_INTERNO_ES = (
     "evaluando el estado actual", "evaluando la situacion",
     "razonamiento", "plan de respuesta", "debo responder", "necesito responder",
     "el usuario dijo", "el usuario ha ", "el cliente dijo", "el cliente ha ",
+    "el usuario es ", "el usuario vive ", "el cliente es ", "el cliente vive ",
+    "silenciosamente", "con una busqueda rapida", "voy a usar ", "lo voy a usar ",
     "identificar el problema", "identificar la intencion", "primero debo ",
 )
 
@@ -5043,6 +5052,17 @@ def _tiene_razonamiento_filtrado(texto: str) -> bool:
     inicio_sin_markdown = re.sub(r"^(?:\d+[.)\-:]\s*)+", "", inicio_sin_markdown)
     inicio_sin_tildes = _texto_sin_tildes(inicio_sin_markdown)
     texto_sin_tildes = _texto_sin_tildes(t)
+    # Caso real (16/10/2026): el modelo tradujo su muletilla interna y mandó
+    # "silenciosamente: El usuario es... Lo voy a usar para completar la ficha" antes de la
+    # respuesta pública. Se revisa cada línea, no solo el comienzo del texto, para cubrir una
+    # respuesta comercial correcta seguida de razonamiento interno.
+    if re.search(
+        r"(?:^|\n)\s*(?:[*_#`>\-]+\s*)?(?:silenciosamente\b|"
+        r"(?:el usuario|el cliente) (?:es|vive)\b|con una busqueda rapida\b|"
+        r"(?:lo |la )?voy a usar (?:para|como)\b)",
+        texto_sin_tildes,
+    ):
+        return True
     if re.search(
         r"\[(?:internal[_ ]?note|nota[_ ]?interna|control[_ ]?interno|analysis|thinking)\]",
         t,
@@ -5168,6 +5188,36 @@ def _motivo_respuesta_incoherente(respuesta: str, messages: list) -> str | None:
     texto_pendiente = " ".join(
         _texto_sin_tildes(message.get("content") or "") for message in pendientes
     )
+    texto_cliente = " ".join(
+        _texto_sin_tildes(message.get("content") or "")
+        for message in messages
+        if message.get("message_type") == 0 and not message.get("private")
+    )
+
+    # El código postal es un dato obligatorio aportado por el cliente, no algo que el modelo
+    # pueda deducir por ciudad. Caso real (16/10/2026): inventó 4129 para Lules diciendo que lo
+    # había obtenido con "una búsqueda rápida"; el código correcto que luego informó el cliente
+    # era 4128. Frenar cualquier CP que no aparezca previamente en un mensaje entrante evita el
+    # error incluso si el modelo omite la narración de su razonamiento.
+    codigos_postales_respuesta = set(re.findall(
+        r"\bcodigo postal\b[^\d\n]{0,50}(?<!\d)(\d{4})(?!\d)",
+        texto,
+    ))
+    codigos_informados_cliente = set(re.findall(r"(?<!\d)\d{4}(?!\d)", texto_cliente))
+    codigos_inventados = codigos_postales_respuesta - codigos_informados_cliente
+    if codigos_inventados:
+        return (
+            "inventó o infirió un código postal que el cliente no había informado: "
+            + ", ".join(sorted(codigos_inventados))
+        )
+    if re.search(
+        r"\b(?:con una busqueda rapida|busque|buscando|averigue|segun (?:google|internet))\b"
+        r".{0,100}\bcodigo postal\b|\bcodigo postal\b.{0,100}"
+        r"\b(?:busque|buscando|averigue|google|internet)\b",
+        texto,
+        flags=re.DOTALL,
+    ):
+        return "afirmó haber buscado o averiguado el código postal"
 
     pregunta_ubicacion = re.search(
         r"\bde donde (?:sos|son)\b|\bde que ciudad (?:sos|son)\b|"

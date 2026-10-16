@@ -297,9 +297,42 @@ class ReglasDeNegocioTest(unittest.TestCase):
         self.assertTrue(main._tiene_razonamiento_filtrado(
             "mandale ese mensaje y esperá.\n\n[INTERNAL_NOTE]"
         ))
+        self.assertTrue(main._tiene_razonamiento_filtrado(
+            "silenciosamente: El usuario es Franco, de Lules, Tucumán. "
+            "Con una búsqueda rápida, el código postal es 4129. Lo voy a usar.\n\n"
+            "listo Franco, ya tenemos todo."
+        ))
+        self.assertTrue(main._tiene_razonamiento_filtrado(
+            "perfecto, ya tengo la localidad.\n\nEl usuario vive en Tucumán y voy a usar "
+            "ese dato para completar la ficha."
+        ))
         self.assertFalse(main._tiene_razonamiento_filtrado(
             "perfecto, me falta solamente la foto del dorso"
         ))
+
+    def test_bloquea_codigo_postal_no_informado_por_el_cliente(self):
+        historial = [
+            _mensaje(1, 1, "me decís la provincia y el código postal?"),
+            _mensaje(2, 0, "Tucumán"),
+        ]
+        motivo = main._motivo_respuesta_incoherente(
+            "listo. el código postal de Lules es 4129, correcto?", historial
+        )
+        self.assertIn("código postal", motivo)
+        self.assertIn("4129", motivo)
+
+    def test_permite_repetir_codigo_postal_informado_por_el_cliente(self):
+        historial = [
+            _mensaje(1, 1, "me decís la provincia y el código postal?"),
+            _mensaje(2, 0, "Tucumán, código 4128"),
+        ]
+        self.assertIsNone(main._motivo_respuesta_incoherente(
+            "perfecto, anoté el código postal 4128", historial
+        ))
+
+    def test_prompt_prohibe_inferir_el_codigo_postal(self):
+        self.assertIn("CÓDIGO POSTAL — REGLA CRÍTICA", main.SYSTEM_PROMPT)
+        self.assertIn("NUNCA lo deduzcas, completes", main.SYSTEM_PROMPT)
 
     def test_filtra_narracion_de_silencio_observada_en_bot3(self):
         casos = [
