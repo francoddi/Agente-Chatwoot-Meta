@@ -3268,8 +3268,10 @@ async def add_conversation_label(conversation_id, label: str) -> bool:
 # Requisito de WhatsApp (no es cosa nuestra, es una regla de Meta): Camila tiene que haberle
 # escrito ella primero a ese número para que se le puedan mandar mensajes fuera de plantilla.
 # --------------------------------------------------------------------------------------
-def _digits_only(numero: str) -> str:
-    return re.sub(r"\D", "", numero or "")
+def _digits_only(numero: object) -> str:
+    # Sheets devuelve celdas numéricas como int/float cuando se pide FORMULA. Convertir siempre
+    # a texto evita que la deduplicación de ventas falle justo al encontrar una fila existente.
+    return re.sub(r"\D", "", str(numero or ""))
 
 
 def _mismo_telefono(a: str, b: str) -> bool:
@@ -3553,6 +3555,43 @@ async def _get_sheets_access_token():
     return creds.token
 
 
+async def _confirmar_fila_sheets_despues_de_error(row: list, token: str) -> str | None:
+    """Confirma si un append que pareció fallar en realidad sí llegó a Google Sheets.
+
+    La API puede guardar la fila y demorar o cortar la respuesta HTTP. Reintentar a ciegas en
+    ese caso duplica la venta y avisar que no se cargó genera una falsa alarma.
+    """
+    if len(row) < 26:
+        return None
+    clave_buscada = _clave_registro_sheets(row[23], row[24], row[8], row[9], row[25])
+    encoded_range = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A:Z", safe="")
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
+        f"/values/{encoded_range}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"valueRenderOption": "FORMULA"},
+            )
+            resp.raise_for_status()
+            filas = resp.json().get("values", []) or []
+    except Exception as e:
+        logger.warning(f"No se pudo verificar la fila de Sheets después del error: {e}")
+        return None
+
+    for idx in range(len(filas) - 1, 0, -1):
+        fila = filas[idx]
+        valor = lambda indice: fila[indice] if len(fila) > indice else ""
+        if _clave_registro_sheets(
+            valor(23), valor(24), valor(8), valor(9), valor(25)
+        ) == clave_buscada:
+            return f"{GOOGLE_SHEETS_SHEET_NAME}!A{idx + 1}:Z{idx + 1}"
+    return None
+
+
 async def append_google_sheets_row(row: list, intentos: int = 3):
     """Agrega una fila al final de la hoja configurada. Reintenta ante errores de red/timeout
     (no ante un token inválido, eso no se arregla reintentando). Devuelve el "updatedRange" que
@@ -3587,10 +3626,20 @@ async def append_google_sheets_row(row: list, intentos: int = 3):
                     logger.error(f"Google Sheets devolvió error {resp.status_code} "
                                   f"(intento {intento}/{intentos}): {resp.text[:1000]}")
                     resp.raise_for_status()
-            logger.info("Fila agregada a Google Sheets.")
-            return resp.json().get("updates", {}).get("updatedRange")
+            updated_range = resp.json().get("updates", {}).get("updatedRange")
+            if updated_range:
+                logger.info("Fila agregada a Google Sheets.")
+                return updated_range
+            raise RuntimeError("Sheets respondió sin informar el rango actualizado")
         except Exception as e:
             logger.error(f"No se pudo agregar la fila a Google Sheets (intento {intento}/{intentos}): {e}")
+            fila_confirmada = await _confirmar_fila_sheets_despues_de_error(row, token)
+            if fila_confirmada:
+                logger.warning(
+                    "El append pareció fallar, pero la fila sí quedó guardada en "
+                    f"{fila_confirmada}; no se duplica ni se envía una falsa alarma."
+                )
+                return fila_confirmada
             if intento < intentos:
                 await asyncio.sleep(2 * intento)  # 2s, 4s
 
@@ -3796,6 +3845,20 @@ async def _avisar_error_sheets(row: list) -> None:
         return
     nombre = row[8] if len(row) > 8 else "(sin nombre)"
     numero = row[23] if len(row) > 23 else "(sin número)"
+    telefono = row[24] if len(row) > 24 else ""
+    clave_aviso = (
+        _normalizar_control(str(nombre)),
+        _digits_only(str(numero)),
+        _digits_only(str(telefono)),
+    )
+    ahora = time.time()
+    for clave_vieja, momento in list(_errores_sheets_avisados.items()):
+        if ahora - momento >= ERROR_SHEETS_AVISO_TTL_SEGUNDOS:
+            _errores_sheets_avisados.pop(clave_vieja, None)
+    if ahora - _errores_sheets_avisados.get(clave_aviso, 0) < ERROR_SHEETS_AVISO_TTL_SEGUNDOS:
+        logger.info(f"Aviso de error de Sheets ya enviado para {nombre!r}; no se duplica.")
+        return
+    _errores_sheets_avisados[clave_aviso] = ahora
     mensaje = (
         f"⚠️ No se pudo cargar en la planilla una venta:\n"
         f"Nombre: {nombre}\n"
@@ -3809,6 +3872,10 @@ async def _avisar_error_sheets(row: list) -> None:
         await send_message(conv_id, mensaje)
     except Exception as e:
         logger.error(f"No se pudo avisar del error de Sheets: {e}")
+
+
+_errores_sheets_avisados: dict[tuple, float] = {}
+ERROR_SHEETS_AVISO_TTL_SEGUNDOS = 3600
 
 
 _fallos_respuesta_avisados: dict[tuple, float] = {}
@@ -4245,6 +4312,36 @@ _COLUMNAS_ACTUALIZABLES = [8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 22, 25]
 _COLUMNAS_DEL_TITULAR = [9, 10]  # DNI y F. nac: si cambia el titular, los viejos ya no sirven
 
 
+async def _confirmar_cambios_fila_sheets(fila_n: int, cambios: list, token: str) -> bool:
+    """Verifica si un batchUpdate con respuesta fallida sí alcanzó a guardar sus cambios."""
+    rango = quote(f"{GOOGLE_SHEETS_SHEET_NAME}!A{fila_n}:Z{fila_n}", safe="")
+    url = (
+        f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}"
+        f"/values/{rango}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            resp = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"valueRenderOption": "FORMULA"},
+            )
+            resp.raise_for_status()
+            filas = resp.json().get("values", []) or []
+    except Exception as e:
+        logger.warning(f"No se pudo verificar la actualización de la fila {fila_n}: {e}")
+        return False
+    fila = filas[0] if filas else []
+
+    def normalizar(valor) -> str:
+        return str(valor).strip().lstrip("'").strip()
+
+    return all(
+        normalizar(fila[indice] if len(fila) > indice else "") == normalizar(valor)
+        for indice, valor in cambios
+    )
+
+
 async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> bool:
     """Cuando llega una ficha cuya clave de venta YA tiene fila, actualiza esa fila con los
     datos que cambiaron, en vez de descartar la ficha nueva entera.
@@ -4328,8 +4425,25 @@ async def _actualizar_fila_existente(numero: str, telefono: str, row: list) -> b
                 {"range": f"{GOOGLE_SHEETS_SHEET_NAME}!{chr(65 + i)}{fila_n}", "values": [[valor]]}
                 for i, valor in cambios
             ]}
-            resp = await client.post(f"{base}:batchUpdate", headers=headers, json=body)
-            resp.raise_for_status()
+            for intento in range(1, 4):
+                try:
+                    resp = await client.post(f"{base}:batchUpdate", headers=headers, json=body)
+                    resp.raise_for_status()
+                    break
+                except Exception as e:
+                    logger.error(
+                        f"No se pudo actualizar la fila {fila_n} de Sheets "
+                        f"(intento {intento}/3): {e}"
+                    )
+                    if await _confirmar_cambios_fila_sheets(fila_n, cambios, token):
+                        logger.warning(
+                            f"El update pareció fallar, pero los cambios sí quedaron guardados "
+                            f"en la fila {fila_n}; no se reintenta ni se avisa un falso error."
+                        )
+                        break
+                    if intento == 3:
+                        raise
+                    await asyncio.sleep(2 * intento)
         logger.info(f"Fila {fila_n} de Sheets actualizada con la ficha corregida: "
                     f"{', '.join(f'{chr(65 + i)}={_normalizar(v)[:40]!r}' for i, v in cambios)}")
         if any(i in (12, 13) for i, _ in cambios):
@@ -4350,9 +4464,28 @@ def _valor_seguro_sheets(valor) -> str:
     return texto
 
 
+_sheets_write_lock = asyncio.Lock()
+
+
 async def log_to_google_sheets(campos: dict, telefono: str, fecha_nacimiento: str = "",
-                                 foto_dni_frente: str = "", foto_dni_dorso: str = "",
-                                 foto_dni_pendiente: bool = False) -> bool:
+                               foto_dni_frente: str = "", foto_dni_dorso: str = "",
+                               foto_dni_pendiente: bool = False) -> bool:
+    """Serializa las altas para que webhooks simultáneos no dupliquen una misma venta."""
+    async with _sheets_write_lock:
+        return await _log_to_google_sheets_locked(
+            campos,
+            telefono,
+            fecha_nacimiento,
+            foto_dni_frente,
+            foto_dni_dorso,
+            foto_dni_pendiente,
+        )
+
+
+async def _log_to_google_sheets_locked(campos: dict, telefono: str,
+                                       fecha_nacimiento: str = "",
+                                       foto_dni_frente: str = "", foto_dni_dorso: str = "",
+                                       foto_dni_pendiente: bool = False) -> bool:
     """Arma una fila con los datos de la ficha (más lo que ya sabemos por Chatwoot) y la agrega
     a la planilla. Columnas reales de la planilla, en este orden (re-confirmado contra el
     encabezado real el 16/10/2026, después de que el equipo insertó "Comentarios" en C,

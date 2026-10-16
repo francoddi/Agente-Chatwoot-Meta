@@ -764,6 +764,93 @@ class ReglasDeNegocioTest(unittest.TestCase):
 
 
 class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
+    async def test_append_confirma_fila_antes_de_reintentar_o_alertar(self):
+        row = [""] * 26
+        row[8] = "Cecilia Sangon de los Angeles"
+        row[9] = "35667227"
+        row[23] = "3515583661"
+        row[24] = "+5493515583661"
+        row[25] = "50 GB"
+
+        cliente = AsyncMock()
+        cliente.post.side_effect = TimeoutError("la respuesta llegó tarde")
+        contexto = AsyncMock()
+        contexto.__aenter__.return_value = cliente
+        confirmar = AsyncMock(return_value="Hoja 1!A193:Z193")
+        avisar = AsyncMock()
+
+        with (
+            patch.object(main, "GOOGLE_SHEETS_CREDENTIALS_JSON", "{}"),
+            patch.object(main, "GOOGLE_SHEETS_SPREADSHEET_ID", "planilla"),
+            patch.object(main, "_get_sheets_access_token", AsyncMock(return_value="token")),
+            patch.object(main.httpx, "AsyncClient", return_value=contexto),
+            patch.object(main, "_confirmar_fila_sheets_despues_de_error", confirmar),
+            patch.object(main, "_avisar_error_sheets", avisar),
+        ):
+            resultado = await main.append_google_sheets_row(row)
+
+        self.assertEqual(resultado, "Hoja 1!A193:Z193")
+        self.assertEqual(cliente.post.await_count, 1)
+        confirmar.assert_awaited_once_with(row, "token")
+        avisar.assert_not_awaited()
+
+    async def test_update_confirma_cambios_antes_de_reintentar_o_alertar(self):
+        existente = [""] * 26
+        existente[8] = "Cecilia Sangon de los Angeles"
+        # La API real de Sheets entrega estas celdas como números con valueRenderOption=FORMULA.
+        existente[9] = 35667227
+        existente[12] = "Pendiente con Camila"
+        existente[23] = 3515583661
+        existente[24] = "+5493515583661"
+        existente[25] = "50 GB"
+        nueva = existente.copy()
+        nueva[12] = '=HYPERLINK("foto";"Ver foto DNI")'
+
+        respuesta_get = MagicMock()
+        respuesta_get.json.return_value = {"values": [[""] * 26, existente]}
+        cliente = AsyncMock()
+        cliente.get.return_value = respuesta_get
+        cliente.post.side_effect = TimeoutError("la respuesta llegó tarde")
+        contexto = AsyncMock()
+        contexto.__aenter__.return_value = cliente
+        confirmar = AsyncMock(return_value=True)
+        avisar = AsyncMock()
+
+        with (
+            patch.object(main, "_get_sheets_access_token", AsyncMock(return_value="token")),
+            patch.object(main.httpx, "AsyncClient", return_value=contexto),
+            patch.object(main, "_confirmar_cambios_fila_sheets", confirmar),
+            patch.object(main, "_forzar_links_visibles", AsyncMock()),
+            patch.object(main, "_avisar_error_sheets", avisar),
+        ):
+            resultado = await main._actualizar_fila_existente(
+                "3515583661", "+5493515583661", nueva
+            )
+
+        self.assertTrue(resultado)
+        self.assertEqual(cliente.post.await_count, 1)
+        confirmar.assert_awaited_once()
+        avisar.assert_not_awaited()
+
+    async def test_no_duplica_el_mismo_aviso_de_sheets(self):
+        main._errores_sheets_avisados.clear()
+        row = [""] * 26
+        row[8] = "Cecilia Sangon de los Angeles"
+        row[23] = "3515583661"
+        row[24] = "+5493515583661"
+        send = AsyncMock()
+
+        with (
+            patch.object(main, "NUMERO_DUENO", "5492200000000"),
+            patch.object(main, "_find_conversation_by_phone", AsyncMock(return_value=10)),
+            patch.object(main, "send_message", send),
+        ):
+            await main._avisar_error_sheets(row)
+            await main._avisar_error_sheets(row)
+
+        send.assert_awaited_once()
+        main._errores_sheets_avisados.clear()
+
     async def test_no_duplica_el_mismo_aviso_de_falla_en_una_hora(self):
         main._fallos_respuesta_avisados.clear()
         send = AsyncMock()
