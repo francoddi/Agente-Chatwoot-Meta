@@ -1,4 +1,3 @@
-import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -936,66 +935,6 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(main.OpenRouterContenidoBloqueadoError):
                 await main.call_openrouter([{"role": "user", "content": "imagen"}], intentos=3)
         self.assertEqual(client.post.await_count, 1)
-
-    async def test_control_semantico_aprueba_solo_respuesta_publica(self):
-        response = MagicMock()
-        response.json.return_value = {
-            "choices": [{"message": {"content": json.dumps({
-                "apto": True,
-                "es_solo_respuesta_al_cliente": True,
-                "contiene_proceso_interno": False,
-                "completa_datos_por_su_cuenta": False,
-                "motivo": "respuesta comercial dirigida al cliente",
-            })}}]
-        }
-        client = AsyncMock()
-        client.post.return_value = response
-        context = AsyncMock()
-        context.__aenter__.return_value = client
-        with patch.object(main.httpx, "AsyncClient", return_value=context):
-            apta, motivo = await main._validar_respuesta_publica_semanticamente(
-                "perfecto, me pasás tu código postal?"
-            )
-        self.assertTrue(apta, motivo)
-        body = client.post.await_args.kwargs["json"]
-        self.assertEqual(body["response_format"]["type"], "json_schema")
-        self.assertTrue(body["response_format"]["json_schema"]["strict"])
-        self.assertTrue(body["reasoning"]["exclude"])
-
-    async def test_control_semantico_bloquea_razonamiento_sin_importar_las_palabras(self):
-        response = MagicMock()
-        response.json.return_value = {
-            "choices": [{"message": {"content": json.dumps({
-                "apto": False,
-                "es_solo_respuesta_al_cliente": False,
-                "contiene_proceso_interno": True,
-                "completa_datos_por_su_cuenta": True,
-                "motivo": "narra una decisión interna y completa un dato",
-            })}}]
-        }
-        client = AsyncMock()
-        client.post.return_value = response
-        context = AsyncMock()
-        context.__aenter__.return_value = client
-        with patch.object(main.httpx, "AsyncClient", return_value=context):
-            apta, _ = await main._validar_respuesta_publica_semanticamente(
-                "Tras considerar el lugar indicado, adoptaríamos el dato geográfico probable."
-            )
-        self.assertFalse(apta)
-
-    async def test_control_semantico_falla_cerrado_si_no_hay_json_valido(self):
-        response = MagicMock()
-        response.json.return_value = {
-            "choices": [{"message": {"content": "respuesta libre e imposible de verificar"}}]
-        }
-        client = AsyncMock()
-        client.post.return_value = response
-        context = AsyncMock()
-        context.__aenter__.return_value = client
-        with patch.object(main.httpx, "AsyncClient", return_value=context):
-            apta, motivo = await main._validar_respuesta_publica_semanticamente("hola")
-        self.assertFalse(apta)
-        self.assertIn("falló el control", motivo)
 
     async def test_regenera_una_respuesta_comercial_incoherente(self):
         historial = [_mensaje(1, 0, "soy de Movistar")]

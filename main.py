@@ -3039,10 +3039,6 @@ CHATWOOT_API_TOKEN = os.getenv("CHATWOOT_API_TOKEN", "")
 CHATWOOT_ACCOUNT_ID = os.getenv("CHATWOOT_ACCOUNT_ID", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
-# El control semántico es una clasificación breve: Flash la resolvió correctamente en ~3 s en
-# las pruebas reales, mientras Pro agregaba una demora innecesaria. No hace falta sumar esta
-# variable en EasyPanel; el valor por defecto ya queda activo al hacer redeploy.
-OPENROUTER_GUARD_MODEL = os.getenv("OPENROUTER_GUARD_MODEL", "google/gemini-2.5-flash")
 # Las respuestas son mensajes breves de WhatsApp. Sin este límite, OpenRouter toma el máximo
 # del modelo (65.536 tokens) y puede rechazar la solicitud por crédito aunque una respuesta real
 # necesite apenas una fracción.
@@ -5353,103 +5349,6 @@ class OpenRouterContenidoBloqueadoError(RuntimeError):
     """El proveedor rechazó el contenido por seguridad; reintentar el mismo historial no ayuda."""
 
 
-async def _validar_respuesta_publica_semanticamente(texto: str) -> tuple[bool, str]:
-    """Último firewall antes de WhatsApp: un segundo pase decide si el texto entero es público.
-
-    No busca palabras puntuales. Le pide a un modelo, con salida JSON Schema estricta, que evalúe
-    el *tipo de discurso*: cada oración tiene que ser una respuesta dirigida al cliente. Si hay
-    narración del razonamiento, instrucciones internas, descripción de decisiones del sistema,
-    una supuesta búsqueda o datos completados por cuenta propia, la respuesta se rechaza entera.
-
-    El control es fail-closed: un error HTTP, JSON inválido o campos inesperados NO habilitan el
-    envío. El bucle exterior regenerará la respuesta y, si vuelve a fallar, avisará a un humano.
-    """
-    if not (texto or "").strip():
-        return False, "la respuesta pública estaba vacía"
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": OPENROUTER_GUARD_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "Sos un firewall de salida para un bot comercial de WhatsApp. Evaluá el "
-                    "texto candidato completo, no lo reescribas. Marcá apto solamente si TODAS "
-                    "sus oraciones están dirigidas naturalmente al cliente y podrían ser dichas "
-                    "por una asesora humana. Marcá no apto si aparece cualquier análisis, "
-                    "razonamiento, plan, decisión interna, descripción del usuario en tercera "
-                    "persona, instrucciones del sistema, referencia al prompt/modelo/herramientas, "
-                    "supuesta búsqueda o averiguación, ficha o nota interna, o un dato personal "
-                    "que el texto afirma haber deducido/completado. Ante cualquier duda, no apto. "
-                    "Una explicación normal de precios, planes, requisitos o próximos pasos "
-                    "dirigida al cliente sí es apta."
-                ),
-            },
-            {"role": "user", "content": f"TEXTO CANDIDATO:\n{texto}"},
-        ],
-        # Gemini 2.5 Pro puede consumir parte del límite en razonamiento antes de emitir el JSON.
-        # Esfuerzo bajo alcanza para esta clasificación binaria; ``exclude`` garantiza además
-        # que ese razonamiento viaje separado y nunca pueda confundirse con el contenido validado.
-        "max_tokens": 1000,
-        "reasoning": {"effort": "low", "exclude": True},
-        "temperature": 0,
-        "provider": {"require_parameters": True},
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "control_respuesta_publica",
-                "strict": True,
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "apto": {"type": "boolean"},
-                        "es_solo_respuesta_al_cliente": {"type": "boolean"},
-                        "contiene_proceso_interno": {"type": "boolean"},
-                        "completa_datos_por_su_cuenta": {"type": "boolean"},
-                        "motivo": {"type": "string"},
-                    },
-                    "required": [
-                        "apto", "es_solo_respuesta_al_cliente",
-                        "contiene_proceso_interno", "completa_datos_por_su_cuenta", "motivo",
-                    ],
-                    "additionalProperties": False,
-                },
-            },
-        },
-    }
-    try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.post(url, headers=headers, json=body)
-            resp.raise_for_status()
-            payload = resp.json()
-        content = payload["choices"][0]["message"]["content"]
-        resultado = json.loads(content) if isinstance(content, str) else content
-        if not isinstance(resultado, dict):
-            raise ValueError("el control no devolvió un objeto")
-        campos_esperados = {
-            "apto", "es_solo_respuesta_al_cliente", "contiene_proceso_interno",
-            "completa_datos_por_su_cuenta", "motivo",
-        }
-        if set(resultado) != campos_esperados:
-            raise ValueError("el control devolvió campos inesperados")
-        aprobado = (
-            resultado["apto"] is True
-            and resultado["es_solo_respuesta_al_cliente"] is True
-            and resultado["contiene_proceso_interno"] is False
-            and resultado["completa_datos_por_su_cuenta"] is False
-            and isinstance(resultado["motivo"], str)
-        )
-        motivo = resultado.get("motivo") or "el control semántico rechazó la respuesta"
-        return aprobado, motivo
-    except Exception as e:
-        logger.error(f"No se pudo validar semánticamente la respuesta pública: {e}")
-        return False, f"falló el control semántico: {e}"
-
-
 async def call_openrouter(messages: list, intentos: int = 3) -> str:
     """Llama a OpenRouter. A veces el modelo devuelve content=null con finish_reason="stop"
     (glitch observado con Gemini vía OpenRouter, sin relación con errores HTTP) — se reintenta
@@ -7147,18 +7046,6 @@ async def process_conversation(conversation_id: int) -> None:
                         "la respuesta pública contenía razonamiento o una nota interna"
                     )
                 bubbles_publicas.append(bubble_publica)
-            # La barrera por frases de arriba es solo un atajo para incidentes ya conocidos. La
-            # protección general no depende del vocabulario: un segundo pase evalúa el sentido
-            # completo de TODO lo que efectivamente se enviaría. Se hace una sola vez para que
-            # también pueda detectar una narración interna partida entre varias burbujas.
-            if bubbles_publicas:
-                apta, motivo_control = await _validar_respuesta_publica_semanticamente(
-                    "\n\n".join(bubbles_publicas)
-                )
-                if not apta:
-                    raise RuntimeError(
-                        f"el control semántico bloqueó la respuesta pública: {motivo_control}"
-                    )
             logger.info(f"Conversación {conversation_id}: agrupé {len(batch)} mensaje(s) entrante(s) "
                         f"({', '.join(kinds)}) y respondo en {len(bubbles)} burbuja(s) "
                         f"(cierra_seguimiento={close_followups}): {reply[:200]!r}")
