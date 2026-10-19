@@ -3607,15 +3607,9 @@ _META_LEADFORM_HEADERS = [
 ]
 
 
-def _normalizar_campo_meta(nombre: str) -> str:
-    texto = unicodedata.normalize("NFD", str(nombre or ""))
-    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn").lower()
-    return re.sub(r"[^a-z0-9]+", "_", texto).strip("_")
-
-
 def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
-    """Convierte una fila cruda de Meta en A:Z y conserva sus datos técnicos en AA:AW."""
-    if len(headers) < 49 or len(row) < 49:
+    """Convierte una fila cruda de Meta en A:Z y conserva sus datos técnicos en AA:AZ."""
+    if len(headers) < 52 or len(row) < 52:
         return None
     if [str(v).strip() for v in headers[:26]] != _META_LEADFORM_HEADERS:
         return None
@@ -3627,24 +3621,87 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     if not str(row[48] or "").strip():
         return None
 
-    technical_headers = headers[26:49]
-    technical_values = []
-    for offset in range(len(technical_headers)):
-        aligned = row[26 + offset] if len(row) > 26 + offset else ""
-        raw = row[offset] if len(row) > offset else ""
-        technical_values.append(aligned if str(aligned or "").strip() else raw)
+    # La integración nativa de Meta escribe una fila nueva de forma compacta desde A, aunque
+    # las cabeceras técnicas estén guardadas desde AA. El formulario anterior terminaba en V
+    # (dirección, DNI); el actual termina en W (CP, dirección, DNI). `lead_status` sí queda
+    # alineado siempre en AW. Leer solo hasta V hacía que el DNI obligatorio del formulario
+    # actual se perdiera al ordenar la fila.
+    raw = [str(value or "").strip() for value in row[:23]]
+    nuevo_formato = raw[20].lower().startswith("z:") or bool(raw[22])
 
-    fields = {
-        _normalizar_campo_meta(name): str(value or "").strip()
-        for name, value in zip(technical_headers, technical_values)
+    company = raw[12]
+    plan_1 = raw[13]
+    plan_2 = raw[14]
+    nombre = raw[15]
+    email = raw[16]
+    phone = raw[17]
+    provincia = raw[18]
+    localidad = raw[19]
+    if phone.startswith("p:"):
+        phone = phone[2:]
+
+    if nuevo_formato:
+        codigo_postal = raw[20]
+        if codigo_postal.lower().startswith("z:"):
+            codigo_postal = codigo_postal[2:].strip()
+        direccion = raw[21]
+        dni = raw[22]
+    else:
+        codigo_postal = ""
+        direccion = raw[20]
+        dni = raw[21]
+
+    # Volvemos a alinear los datos crudos bajo sus cabeceras técnicas. Así se conserva la
+    # trazabilidad de ambos formularios sin mezclar el plan viejo con el nuevo ni el CP con
+    # la dirección o el DNI.
+    technical_by_header = {
+        "id": raw[0],
+        "created_time": raw[1],
+        "ad_id": raw[2],
+        "ad_name": raw[3],
+        "adset_id": raw[4],
+        "adset_name": raw[5],
+        "campaign_id": raw[6],
+        "campaign_name": raw[7],
+        "form_id": raw[8],
+        "form_name": raw[9],
+        "is_organic": raw[10],
+        "platform": raw[11],
+        "¿qué_compañía_de_celular_tenés_actualmente?": company,
+        "nombre_y_apellidos": nombre,
+        "correo_electrónico": email,
+        "número_de_teléfono": raw[17],
+        "provincia": provincia,
+        "ciudad": localidad,
+        "dirección_postal": direccion,
+        "dni_(argentina)": dni,
+        "lead_status": str(row[48] or "").strip(),
     }
+    if nuevo_formato:
+        technical_by_header.update({
+            "estos_son_los_planes_que_tenemos_con_un_70%_de_descuento!": "",
+            "estos_son_los_planes_que_tenemos_con_descuento!": "",
+            "estos_son_los_planes_que_tenemos_con_descuento_para_vos:": plan_1,
+            "estos_son_los_planes_que_tenemos_con_descuento:": plan_2,
+            "código_postal": raw[20],
+        })
+    else:
+        technical_by_header.update({
+            "estos_son_los_planes_que_tenemos_con_un_70%_de_descuento!": plan_1,
+            "estos_son_los_planes_que_tenemos_con_descuento!": plan_2,
+            "estos_son_los_planes_que_tenemos_con_descuento_para_vos:": "",
+            "estos_son_los_planes_que_tenemos_con_descuento:": "",
+            "código_postal": "",
+        })
 
-    def value(*names):
-        for name in names:
-            found = fields.get(_normalizar_campo_meta(name), "")
-            if found:
-                return found
-        return ""
+    technical_headers = headers[26:52]
+    technical_values = []
+    for offset, header in enumerate(technical_headers):
+        header = str(header or "").strip()
+        if header in technical_by_header:
+            technical_values.append(technical_by_header[header])
+        else:
+            technical_values.append(row[26 + offset])
 
     try:
         created = datetime.fromisoformat(created_time.replace("Z", "+00:00"))
@@ -3656,50 +3713,26 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     except ValueError:
         return None
 
-    phone = value("número_de_teléfono", "telefono", "phone_number")
-    if phone.startswith("p:"):
-        phone = phone[2:]
-    numero_a_portar = value("número_a_portar", "numero_a_portar") or phone
-    numero_contacto = value("número_de_contacto", "numero_de_contacto") or phone
-    segmento = value("segmento", "tipo_de_cliente") or "Consumidor final"
-    plan = value(
-        "estos_son_los_planes_que_tenemos_con_un_70%_de_descuento!",
-        "estos_son_los_planes_que_tenemos_con_descuento!",
-        "plan",
-        "plan_elegido",
-    )
+    numero_a_portar = phone
+    numero_contacto = phone
+    segmento = "Consumidor final"
+    plan = plan_1 or plan_2
     plan = re.sub(r"(?i)(\d+)\s*gb", r"\1 GB", plan.replace("_", " ")).strip()
-
-    # El formulario nuevo reemplazó el DNI por el código postal, pero Meta conservó en la
-    # planilla las cabeceras técnicas del formulario anterior. Por eso no se pueden confiar
-    # ciegamente los nombres de las dos últimas columnas: el prefijo `z:` identifica el CP.
-    penultimo_campo = technical_values[20] if len(technical_values) > 20 else ""
-    ultimo_campo = technical_values[21] if len(technical_values) > 21 else ""
-    if str(penultimo_campo).lower().startswith("z:"):
-        codigo_postal = str(penultimo_campo)[2:].strip()
-        direccion = ultimo_campo
-        dni = ""
-    else:
-        codigo_postal = value("código_postal", "codigo_postal", "cp")
-        if str(codigo_postal).lower().startswith("z:"):
-            codigo_postal = str(codigo_postal)[2:].strip()
-        direccion = value("dirección_postal", "direccion_postal", "dirección", "direccion")
-        dni = value("dni_(argentina)", "dni")
 
     business = [
         "", "", "Lead de Meta", "", "", "", hora, fecha,
-        value("nombre_y_apellidos", "nombre_completo", "full_name"),
+        nombre,
         dni,
-        value("fecha_de_nacimiento", "f_nac"),
+        "",
         "", "", "",
-        value("correo_electrónico", "correo_electronico", "email"),
-        value("¿qué_compañía_de_celular_tenés_actualmente?", "compañía_actual", "compania_actual"),
+        email,
+        company,
         segmento,
-        value("provincia"),
-        value("ciudad", "localidad"),
+        provincia,
+        localidad,
         direccion,
-        value("altura"),
-        value("piso_depto", "piso_departamento"),
+        "",
+        "",
         codigo_postal,
         numero_a_portar,
         numero_contacto,
@@ -3717,7 +3750,7 @@ async def _ordenar_leads_meta_pendientes() -> int:
         return 0
 
     base = f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}/values"
-    encoded_range = quote(f"{META_LEADFORM_SHEET_NAME}!A:AW", safe="")
+    encoded_range = quote(f"{META_LEADFORM_SHEET_NAME}!A:AZ", safe="")
     headers_auth = {"Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         response = await client.get(f"{base}/{encoded_range}", headers=headers_auth)
@@ -3725,14 +3758,14 @@ async def _ordenar_leads_meta_pendientes() -> int:
         rows = response.json().get("values", []) or []
         if not rows:
             return 0
-        headers = rows[0] + [""] * max(0, 49 - len(rows[0]))
+        headers = rows[0] + [""] * max(0, 52 - len(rows[0]))
         updates = []
         for row_number, row in enumerate(rows[1:], start=2):
-            padded = row + [""] * max(0, 49 - len(row))
+            padded = row + [""] * max(0, 52 - len(row))
             ordered = _ordenar_fila_leadform_meta(headers, padded)
             if ordered is not None:
                 updates.append({
-                    "range": f"{META_LEADFORM_SHEET_NAME}!A{row_number}:AW{row_number}",
+                    "range": f"{META_LEADFORM_SHEET_NAME}!A{row_number}:AZ{row_number}",
                     "values": [ordered],
                 })
         if not updates:
@@ -3745,7 +3778,7 @@ async def _ordenar_leads_meta_pendientes() -> int:
         response.raise_for_status()
         dropdown_requests = []
         for update in updates:
-            row_number = int(re.search(r"A(\d+):AW", update["range"]).group(1))
+            row_number = int(re.search(r"A(\d+):AZ", update["range"]).group(1))
             dropdown_requests.append({
                 "copyPaste": {
                     "source": {

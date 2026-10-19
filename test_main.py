@@ -1472,10 +1472,12 @@ class MetaLeadFormTest(unittest.TestCase):
             "estos_son_los_planes_que_tenemos_con_descuento!", "nombre_y_apellidos",
             "correo_electrónico", "número_de_teléfono", "provincia", "ciudad",
             "dirección_postal", "dni_(argentina)", "lead_status",
+            "estos_son_los_planes_que_tenemos_con_descuento_para_vos:",
+            "estos_son_los_planes_que_tenemos_con_descuento:", "código_postal",
         ]
 
     def _raw_row(self):
-        row = [""] * 49
+        row = [""] * 52
         row[:22] = [
             "l:1766603177946012", "2026-10-18T20:26:58-05:00", "", "", "", "", "", "",
             "f:1429855975231545", "Form", "true", "", "Movistar", "Plan 4 GB", "",
@@ -1502,7 +1504,12 @@ class MetaLeadFormTest(unittest.TestCase):
         self.assertEqual(ordered[24], "'+5492236000000")
         self.assertEqual(ordered[25], "Plan 4 GB")
         self.assertEqual(ordered[26], "l:1766603177946012")
+        self.assertEqual(ordered[39], "Plan 4 GB")
+        self.assertEqual(ordered[40], "")
+        self.assertEqual(ordered[47], "12345678")
         self.assertEqual(ordered[48], "CREATED")
+        self.assertEqual(ordered[49], "")
+        self.assertEqual(ordered[51], "")
 
     def test_no_reprocesa_una_fila_ya_ordenada(self):
         ordered = main._ordenar_fila_leadform_meta(self._headers(), self._raw_row())
@@ -1513,11 +1520,19 @@ class MetaLeadFormTest(unittest.TestCase):
         row[13] = "14gb_→_$20.997"
         row[20] = "z:8332"
         row[21] = "Calle Israel 1764"
+        row[22] = "30123456"
         ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
-        self.assertEqual(ordered[9], "")
+        self.assertEqual(ordered[9], "30123456")
         self.assertEqual(ordered[19], "Calle Israel 1764")
         self.assertEqual(ordered[22], "8332")
         self.assertEqual(ordered[25], "14 GB → $20.997")
+        self.assertEqual(ordered[39], "")
+        self.assertEqual(ordered[40], "")
+        self.assertEqual(ordered[47], "30123456")
+        self.assertEqual(ordered[48], "CREATED")
+        self.assertEqual(ordered[49], "14gb_→_$20.997")
+        self.assertEqual(ordered[50], "")
+        self.assertEqual(ordered[51], "z:8332")
 
     def test_rechaza_otra_estructura_de_hoja(self):
         headers = self._headers()
