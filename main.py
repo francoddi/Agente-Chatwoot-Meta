@@ -3078,6 +3078,12 @@ DERIVADO_LABEL = os.getenv("DERIVADO_LABEL", "ddd")
 GOOGLE_SHEETS_CREDENTIALS_JSON = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
 GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
 GOOGLE_SHEETS_SHEET_NAME = os.getenv("GOOGLE_SHEETS_SHEET_NAME", "Hoja 1")
+# Ordenador de leads enviados por la integración nativa Meta -> Google Sheets. Está apagado
+# por defecto para que el mismo código desplegado en otros bots no procese la hoja dos veces.
+# La pestaña está fijada deliberadamente: nunca toca Hoja 1 ni SEPTIEMBRE.
+META_LEADFORM_SYNC_ENABLED = os.getenv("META_LEADFORM_SYNC_ENABLED", "false").lower() == "true"
+META_LEADFORM_SHEET_NAME = "Prueba LeadForm"
+META_LEADFORM_SYNC_INTERVAL_SECONDS = 60
 # sheetId interno (distinto del nombre) de la primera/única hoja de la planilla — 0 es el valor
 # real confirmado contra la API el 15/09/2026. Si algún día se agrega o reordena una hoja
 # (pestaña) dentro del mismo documento, hay que volver a confirmar este número.
@@ -3167,6 +3173,12 @@ async def _iniciar_barrido_pendientes():
 async def _iniciar_recuperacion_ventas():
     """Arranca el revisor automático de ventas trabadas (ver _recuperacion_ventas_loop)."""
     asyncio.create_task(_recuperacion_ventas_loop())
+
+
+@app.on_event("startup")
+async def _iniciar_sync_leadform_meta():
+    """Ordena en background los leads crudos que Meta agrega a Prueba LeadForm."""
+    asyncio.create_task(_meta_leadform_sync_loop())
 
 
 def _chatwoot_base(conversation_id) -> str:
@@ -3582,6 +3594,150 @@ async def _get_sheets_access_token():
             logger.error(f"No se pudo refrescar el token de Google Sheets: {e}")
             return None
     return creds.token
+
+
+_META_LEADFORM_HEADERS = [
+    "ESTADO", "VENDEDORA", "COMENTARIOS", "FECHA PORTACION", "TIEMPO DE DEMORA",
+    "HORA ASIGNACION", "HORA DE CARGA", "FECHA DE VENTA", "NOMBRE Y APELLIDO", "DNI",
+    "F. NAC", "ESTADO DEL DNI", "FOTO DNI", "FOTO DNI DORSO", "EMAIL",
+    "EMPRESA DONANTE", "SEGMENTO", "PROVINCIA", "LOCALIDAD", "DIRECC ENTREGA", "ALTURA",
+    "PISO/ DEPTO", "CP", "NUMERO A PORTAR", "NUMERO DE CONTACTO", "PLAN",
+]
+
+
+def _normalizar_campo_meta(nombre: str) -> str:
+    texto = unicodedata.normalize("NFD", str(nombre or ""))
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn").lower()
+    return re.sub(r"[^a-z0-9]+", "_", texto).strip("_")
+
+
+def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
+    """Convierte una fila cruda de Meta en A:Z y conserva sus datos técnicos en AA:AW."""
+    if len(headers) < 49 or len(row) < 49:
+        return None
+    if [str(v).strip() for v in headers[:26]] != _META_LEADFORM_HEADERS:
+        return None
+
+    lead_id = str(row[0] or "").strip()
+    created_time = str(row[1] or "").strip()
+    if not re.fullmatch(r"(?:l:)?\d{8,}", lead_id) or not created_time:
+        return None
+    if not str(row[48] or "").strip():
+        return None
+
+    technical_headers = headers[26:49]
+    technical_values = []
+    for offset in range(len(technical_headers)):
+        aligned = row[26 + offset] if len(row) > 26 + offset else ""
+        raw = row[offset] if len(row) > offset else ""
+        technical_values.append(aligned if str(aligned or "").strip() else raw)
+
+    fields = {
+        _normalizar_campo_meta(name): str(value or "").strip()
+        for name, value in zip(technical_headers, technical_values)
+    }
+
+    def value(*names):
+        for name in names:
+            found = fields.get(_normalizar_campo_meta(name), "")
+            if found:
+                return found
+        return ""
+
+    try:
+        created = datetime.fromisoformat(created_time.replace("Z", "+00:00"))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=CAMILA_TIMEZONE)
+        created = created.astimezone(CAMILA_TIMEZONE)
+        hora = created.strftime("%H:%M")
+        fecha = created.strftime("%d/%m/%Y")
+    except ValueError:
+        return None
+
+    phone = value("número_de_teléfono", "telefono", "phone_number")
+    if phone.startswith("p:"):
+        phone = phone[2:]
+    numero_a_portar = value("número_a_portar", "numero_a_portar") or phone
+    numero_contacto = value("número_de_contacto", "numero_de_contacto") or phone
+    segmento = value("segmento", "tipo_de_cliente") or "Consumidor final"
+    plan = value(
+        "estos_son_los_planes_que_tenemos_con_un_70%_de_descuento!",
+        "estos_son_los_planes_que_tenemos_con_descuento!",
+        "plan",
+        "plan_elegido",
+    )
+
+    business = [
+        "", "", "Lead de Meta", "", "", "", hora, fecha,
+        value("nombre_y_apellidos", "nombre_completo", "full_name"),
+        value("dni_(argentina)", "dni"),
+        value("fecha_de_nacimiento", "f_nac"),
+        "", "", "",
+        value("correo_electrónico", "correo_electronico", "email"),
+        value("¿qué_compañía_de_celular_tenés_actualmente?", "compañía_actual", "compania_actual"),
+        segmento,
+        value("provincia"),
+        value("ciudad", "localidad"),
+        value("dirección_postal", "direccion_postal", "dirección", "direccion"),
+        value("altura"),
+        value("piso_depto", "piso_departamento"),
+        value("código_postal", "codigo_postal", "cp"),
+        numero_a_portar,
+        numero_contacto,
+        plan,
+    ]
+    return [_valor_seguro_sheets(v) for v in business + technical_values]
+
+
+async def _ordenar_leads_meta_pendientes() -> int:
+    """Ordena únicamente filas crudas de la pestaña Prueba LeadForm."""
+    if not (GOOGLE_SHEETS_CREDENTIALS_JSON and GOOGLE_SHEETS_SPREADSHEET_ID):
+        return 0
+    token = await _get_sheets_access_token()
+    if not token:
+        return 0
+
+    base = f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}/values"
+    encoded_range = quote(f"{META_LEADFORM_SHEET_NAME}!A:AW", safe="")
+    headers_auth = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        response = await client.get(f"{base}/{encoded_range}", headers=headers_auth)
+        response.raise_for_status()
+        rows = response.json().get("values", []) or []
+        if not rows:
+            return 0
+        headers = rows[0] + [""] * max(0, 49 - len(rows[0]))
+        updates = []
+        for row_number, row in enumerate(rows[1:], start=2):
+            padded = row + [""] * max(0, 49 - len(row))
+            ordered = _ordenar_fila_leadform_meta(headers, padded)
+            if ordered is not None:
+                updates.append({
+                    "range": f"{META_LEADFORM_SHEET_NAME}!A{row_number}:AW{row_number}",
+                    "values": [ordered],
+                })
+        if not updates:
+            return 0
+        response = await client.post(
+            f"{base}:batchUpdate",
+            headers=headers_auth,
+            json={"valueInputOption": "USER_ENTERED", "data": updates},
+        )
+        response.raise_for_status()
+    logger.info(f"Meta LeadForm: {len(updates)} lead(s) ordenado(s) en {META_LEADFORM_SHEET_NAME}.")
+    return len(updates)
+
+
+async def _meta_leadform_sync_loop():
+    if not META_LEADFORM_SYNC_ENABLED:
+        return
+    logger.info(f"Meta LeadForm: ordenador activo solo para {META_LEADFORM_SHEET_NAME}.")
+    while True:
+        try:
+            await _ordenar_leads_meta_pendientes()
+        except Exception as e:
+            logger.error(f"Meta LeadForm: no se pudieron ordenar los leads: {e}")
+        await asyncio.sleep(META_LEADFORM_SYNC_INTERVAL_SECONDS)
 
 
 async def _confirmar_fila_sheets_despues_de_error(row: list, token: str) -> str | None:

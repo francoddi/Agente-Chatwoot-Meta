@@ -1462,5 +1462,57 @@ class ProteccionesAsincronicasTest(unittest.IsolatedAsyncioTestCase):
         send.assert_not_awaited()
 
 
+class MetaLeadFormTest(unittest.TestCase):
+    def _headers(self):
+        return main._META_LEADFORM_HEADERS + [
+            "id", "created_time", "ad_id", "ad_name", "adset_id", "adset_name",
+            "campaign_id", "campaign_name", "form_id", "form_name", "is_organic",
+            "platform", "¿qué_compañía_de_celular_tenés_actualmente?",
+            "estos_son_los_planes_que_tenemos_con_un_70%_de_descuento!",
+            "estos_son_los_planes_que_tenemos_con_descuento!", "nombre_y_apellidos",
+            "correo_electrónico", "número_de_teléfono", "provincia", "ciudad",
+            "dirección_postal", "dni_(argentina)", "lead_status",
+        ]
+
+    def _raw_row(self):
+        row = [""] * 49
+        row[:22] = [
+            "l:1766603177946012", "2026-10-18T20:26:58-05:00", "", "", "", "", "", "",
+            "f:1429855975231545", "Form", "true", "", "Movistar", "Plan 4 GB", "",
+            "Franco Pérez", "franco@example.com", "p:+5492236000000", "Buenos Aires",
+            "Mar del Plata", "San Martín 1234", "12345678",
+        ]
+        row[48] = "CREATED"
+        return row
+
+    def test_ordena_fila_meta_y_conserva_datos_tecnicos(self):
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), self._raw_row())
+        self.assertIsNotNone(ordered)
+        self.assertEqual(ordered[6], "22:26")
+        self.assertEqual(ordered[7], "18/10/2026")
+        self.assertEqual(ordered[8], "Franco Pérez")
+        self.assertEqual(ordered[9], "12345678")
+        self.assertEqual(ordered[14], "franco@example.com")
+        self.assertEqual(ordered[15], "Movistar")
+        self.assertEqual(ordered[16], "Consumidor final")
+        self.assertEqual(ordered[17], "Buenos Aires")
+        self.assertEqual(ordered[18], "Mar del Plata")
+        self.assertEqual(ordered[19], "San Martín 1234")
+        self.assertEqual(ordered[23], "'+5492236000000")
+        self.assertEqual(ordered[24], "'+5492236000000")
+        self.assertEqual(ordered[25], "Plan 4 GB")
+        self.assertEqual(ordered[26], "l:1766603177946012")
+        self.assertEqual(ordered[48], "CREATED")
+
+    def test_no_reprocesa_una_fila_ya_ordenada(self):
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), self._raw_row())
+        self.assertIsNone(main._ordenar_fila_leadform_meta(self._headers(), ordered))
+
+    def test_rechaza_otra_estructura_de_hoja(self):
+        headers = self._headers()
+        headers[0] = "OTRA HOJA"
+        self.assertIsNone(main._ordenar_fila_leadform_meta(headers, self._raw_row()))
+
+
 if __name__ == "__main__":
     unittest.main()
