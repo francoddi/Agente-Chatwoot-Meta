@@ -1508,6 +1508,17 @@ class MetaLeadFormTest(unittest.TestCase):
         ordered = main._ordenar_fila_leadform_meta(self._headers(), self._raw_row())
         self.assertIsNone(main._ordenar_fila_leadform_meta(self._headers(), ordered))
 
+    def test_formulario_nuevo_distingue_codigo_postal_direccion_y_dni(self):
+        row = self._raw_row()
+        row[13] = "14gb_→_$20.997"
+        row[20] = "z:8332"
+        row[21] = "Calle Israel 1764"
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
+        self.assertEqual(ordered[9], "")
+        self.assertEqual(ordered[19], "Calle Israel 1764")
+        self.assertEqual(ordered[22], "8332")
+        self.assertEqual(ordered[25], "14 GB → $20.997")
+
     def test_rechaza_otra_estructura_de_hoja(self):
         headers = self._headers()
         headers[0] = "OTRA HOJA"

@@ -3668,11 +3668,28 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         "plan",
         "plan_elegido",
     )
+    plan = re.sub(r"(?i)(\d+)\s*gb", r"\1 GB", plan.replace("_", " ")).strip()
+
+    # El formulario nuevo reemplazó el DNI por el código postal, pero Meta conservó en la
+    # planilla las cabeceras técnicas del formulario anterior. Por eso no se pueden confiar
+    # ciegamente los nombres de las dos últimas columnas: el prefijo `z:` identifica el CP.
+    penultimo_campo = technical_values[20] if len(technical_values) > 20 else ""
+    ultimo_campo = technical_values[21] if len(technical_values) > 21 else ""
+    if str(penultimo_campo).lower().startswith("z:"):
+        codigo_postal = str(penultimo_campo)[2:].strip()
+        direccion = ultimo_campo
+        dni = ""
+    else:
+        codigo_postal = value("código_postal", "codigo_postal", "cp")
+        if str(codigo_postal).lower().startswith("z:"):
+            codigo_postal = str(codigo_postal)[2:].strip()
+        direccion = value("dirección_postal", "direccion_postal", "dirección", "direccion")
+        dni = value("dni_(argentina)", "dni")
 
     business = [
         "", "", "Lead de Meta", "", "", "", hora, fecha,
         value("nombre_y_apellidos", "nombre_completo", "full_name"),
-        value("dni_(argentina)", "dni"),
+        dni,
         value("fecha_de_nacimiento", "f_nac"),
         "", "", "",
         value("correo_electrónico", "correo_electronico", "email"),
@@ -3680,10 +3697,10 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         segmento,
         value("provincia"),
         value("ciudad", "localidad"),
-        value("dirección_postal", "direccion_postal", "dirección", "direccion"),
+        direccion,
         value("altura"),
         value("piso_depto", "piso_departamento"),
-        value("código_postal", "codigo_postal", "cp"),
+        codigo_postal,
         numero_a_portar,
         numero_contacto,
         plan,
