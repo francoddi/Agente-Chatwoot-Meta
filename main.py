@@ -3084,6 +3084,8 @@ GOOGLE_SHEETS_SHEET_NAME = os.getenv("GOOGLE_SHEETS_SHEET_NAME", "Hoja 1")
 META_LEADFORM_SYNC_ENABLED = os.getenv("META_LEADFORM_SYNC_ENABLED", "false").lower() == "true"
 META_LEADFORM_SHEET_NAME = "Prueba LeadForm"
 META_LEADFORM_SYNC_INTERVAL_SECONDS = 60
+META_LEADFORM_SHEET_ID = 1101758108
+META_LEADFORM_DROPDOWN_TEMPLATE_ROW = 500
 # sheetId interno (distinto del nombre) de la primera/única hoja de la planilla — 0 es el valor
 # real confirmado contra la API el 15/09/2026. Si algún día se agrega o reordena una hoja
 # (pestaña) dentro del mismo documento, hay que volver a confirmar este número.
@@ -3722,6 +3724,35 @@ async def _ordenar_leads_meta_pendientes() -> int:
             f"{base}:batchUpdate",
             headers=headers_auth,
             json={"valueInputOption": "USER_ENTERED", "data": updates},
+        )
+        response.raise_for_status()
+        dropdown_requests = []
+        for update in updates:
+            row_number = int(re.search(r"A(\d+):AW", update["range"]).group(1))
+            dropdown_requests.append({
+                "copyPaste": {
+                    "source": {
+                        "sheetId": META_LEADFORM_SHEET_ID,
+                        "startRowIndex": META_LEADFORM_DROPDOWN_TEMPLATE_ROW - 1,
+                        "endRowIndex": META_LEADFORM_DROPDOWN_TEMPLATE_ROW,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 2,
+                    },
+                    "destination": {
+                        "sheetId": META_LEADFORM_SHEET_ID,
+                        "startRowIndex": row_number - 1,
+                        "endRowIndex": row_number,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 2,
+                    },
+                    "pasteType": "PASTE_DATA_VALIDATION",
+                    "pasteOrientation": "NORMAL",
+                }
+            })
+        response = await client.post(
+            f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}:batchUpdate",
+            headers=headers_auth,
+            json={"requests": dropdown_requests},
         )
         response.raise_for_status()
     logger.info(f"Meta LeadForm: {len(updates)} lead(s) ordenado(s) en {META_LEADFORM_SHEET_NAME}.")
