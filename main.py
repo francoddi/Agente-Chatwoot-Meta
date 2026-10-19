@@ -3083,7 +3083,7 @@ GOOGLE_SHEETS_SHEET_NAME = os.getenv("GOOGLE_SHEETS_SHEET_NAME", "Hoja 1")
 # La pestaña está fijada deliberadamente: nunca toca Hoja 1 ni SEPTIEMBRE.
 META_LEADFORM_SYNC_ENABLED = os.getenv("META_LEADFORM_SYNC_ENABLED", "false").lower() == "true"
 META_LEADFORM_SHEET_NAME = "Prueba LeadForm"
-META_LEADFORM_SYNC_INTERVAL_SECONDS = 60
+META_LEADFORM_SYNC_INTERVAL_SECONDS = 10
 META_LEADFORM_SHEET_ID = 1101758108
 META_LEADFORM_DROPDOWN_TEMPLATE_ROW = 500
 # sheetId interno (distinto del nombre) de la primera/única hoja de la planilla — 0 es el valor
