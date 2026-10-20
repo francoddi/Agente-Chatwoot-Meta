@@ -3622,34 +3622,50 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         return None
 
     # La integración nativa de Meta escribe una fila nueva de forma compacta desde A, aunque
-    # las cabeceras técnicas estén guardadas desde AA. El formulario anterior terminaba en V
-    # (dirección, DNI); el actual termina en W (CP, dirección, DNI). `lead_status` sí queda
-    # alineado siempre en AW. Leer solo hasta V hacía que el DNI obligatorio del formulario
-    # actual se perdiera al ordenar la fila.
+    # las cabeceras técnicas estén guardadas desde AA. Hay tres disposiciones conocidas:
+    # - formulario original: dos campos de plan, dirección y DNI;
+    # - Definitivo: dos campos de plan, CP, dirección y DNI;
+    # - formulario de un solo plan: un campo de plan, CP, dirección y DNI.
+    # `lead_status` sí queda alineado siempre en AW. Se identifican por la posición del CP
+    # (Meta lo prefija con `z:`), no por el nombre del formulario, para que duplicarlo no rompa
+    # nuevamente el orden.
     raw = [str(value or "").strip() for value in row[:23]]
-    nuevo_formato = raw[20].lower().startswith("z:") or bool(raw[22])
+    formato_un_plan = raw[19].lower().startswith("z:")
+    formato_dos_planes_con_cp = raw[20].lower().startswith("z:") or bool(raw[22])
 
     company = raw[12]
-    plan_1 = raw[13]
-    plan_2 = raw[14]
-    nombre = raw[15]
-    email = raw[16]
-    phone = raw[17]
-    provincia = raw[18]
-    localidad = raw[19]
-    if phone.startswith("p:"):
-        phone = phone[2:]
-
-    if nuevo_formato:
-        codigo_postal = raw[20]
-        if codigo_postal.lower().startswith("z:"):
-            codigo_postal = codigo_postal[2:].strip()
-        direccion = raw[21]
-        dni = raw[22]
-    else:
-        codigo_postal = ""
+    if formato_un_plan:
+        plan_1 = raw[13]
+        plan_2 = ""
+        nombre = raw[14]
+        email = raw[15]
+        phone = raw[16]
+        provincia = raw[17]
+        localidad = raw[18]
+        codigo_postal = raw[19]
         direccion = raw[20]
         dni = raw[21]
+    else:
+        plan_1 = raw[13]
+        plan_2 = raw[14]
+        nombre = raw[15]
+        email = raw[16]
+        phone = raw[17]
+        provincia = raw[18]
+        localidad = raw[19]
+        if formato_dos_planes_con_cp:
+            codigo_postal = raw[20]
+            direccion = raw[21]
+            dni = raw[22]
+        else:
+            codigo_postal = ""
+            direccion = raw[20]
+            dni = raw[21]
+
+    if phone.startswith("p:"):
+        phone = phone[2:]
+    if codigo_postal.lower().startswith("z:"):
+        codigo_postal = codigo_postal[2:].strip()
 
     # Volvemos a alinear los datos crudos bajo sus cabeceras técnicas. Así se conserva la
     # trazabilidad de ambos formularios sin mezclar el plan viejo con el nuevo ni el CP con
@@ -3677,13 +3693,19 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         "dni_(argentina)": dni,
         "lead_status": str(row[48] or "").strip(),
     }
-    if nuevo_formato:
+    if formato_un_plan or formato_dos_planes_con_cp:
+        plan_movistar = plan_1
+        plan_personal = plan_2
+        if formato_un_plan:
+            es_personal = "personal" in company.casefold()
+            plan_movistar = "" if es_personal else plan_1
+            plan_personal = plan_1 if es_personal else ""
         technical_by_header.update({
             "estos_son_los_planes_que_tenemos_con_un_70%_de_descuento!": "",
             "estos_son_los_planes_que_tenemos_con_descuento!": "",
-            "estos_son_los_planes_que_tenemos_con_descuento_para_vos:": plan_1,
-            "estos_son_los_planes_que_tenemos_con_descuento:": plan_2,
-            "código_postal": raw[20],
+            "estos_son_los_planes_que_tenemos_con_descuento_para_vos:": plan_movistar,
+            "estos_son_los_planes_que_tenemos_con_descuento:": plan_personal,
+            "código_postal": f"z:{codigo_postal}" if codigo_postal else "",
         })
     else:
         technical_by_header.update({
