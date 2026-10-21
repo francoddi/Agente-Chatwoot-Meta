@@ -3600,25 +3600,43 @@ async def _get_sheets_access_token():
 
 _META_LEADFORM_HEADERS = [
     "ESTADO", "VENDEDORA", "COMENTARIOS", "FECHA PORTACION", "TIEMPO DE DEMORA",
-    "HORA ASIGNACION", "HORA DE CARGA", "FECHA DE VENTA", "NOMBRE Y APELLIDO", "DNI",
-    "F. NAC", "ESTADO DEL DNI", "FOTO DNI", "FOTO DNI DORSO", "EMAIL",
+    "HORA ASIGNACION", "HORA DE CARGA", "FECHA DE VENTA", "APERTURA DE CANAL",
+    "NOMBRE Y APELLIDO", "DNI", "F. NAC", "ESTADO DEL DNI", "FOTO DNI",
+    "FOTO DNI DORSO", "EMAIL",
     "EMPRESA DONANTE", "SEGMENTO", "PROVINCIA", "LOCALIDAD", "DIRECC ENTREGA", "ALTURA",
     "PISO/ DEPTO", "CP", "NUMERO A PORTAR", "NUMERO DE CONTACTO", "PLAN",
 ]
+_META_LEADFORM_TECHNICAL_COLUMN_COUNT = 26
+_META_LEADFORM_TOTAL_COLUMN_COUNT = (
+    len(_META_LEADFORM_HEADERS) + _META_LEADFORM_TECHNICAL_COLUMN_COUNT
+)
+_META_LEADFORM_LAST_COLUMN = "BA"
 
 
 def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
-    """Convierte una fila cruda de Meta en A:Z y conserva sus datos técnicos en AA:AZ."""
-    if len(headers) < 52 or len(row) < 52:
+    """Convierte una fila cruda de Meta en A:AA y conserva sus datos técnicos en AB:BA."""
+    if (len(headers) < _META_LEADFORM_TOTAL_COLUMN_COUNT
+            or len(row) < _META_LEADFORM_TOTAL_COLUMN_COUNT):
         return None
-    if [str(v).strip() for v in headers[:26]] != _META_LEADFORM_HEADERS:
+    business_column_count = len(_META_LEADFORM_HEADERS)
+    if [str(v).strip() for v in headers[:business_column_count]] != _META_LEADFORM_HEADERS:
+        return None
+
+    technical_headers = headers[
+        business_column_count:_META_LEADFORM_TOTAL_COLUMN_COUNT
+    ]
+    try:
+        lead_status_index = business_column_count + [
+            str(v).strip() for v in technical_headers
+        ].index("lead_status")
+    except ValueError:
         return None
 
     lead_id = str(row[0] or "").strip()
     created_time = str(row[1] or "").strip()
     if not re.fullmatch(r"(?:l:)?\d{8,}", lead_id) or not created_time:
         return None
-    if not str(row[48] or "").strip():
+    if not str(row[lead_status_index] or "").strip():
         return None
 
     # La integración nativa de Meta escribe una fila nueva de forma compacta desde A, aunque
@@ -3691,7 +3709,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         "ciudad": localidad,
         "dirección_postal": direccion,
         "dni_(argentina)": dni,
-        "lead_status": str(row[48] or "").strip(),
+        "lead_status": str(row[lead_status_index] or "").strip(),
     }
     if formato_un_plan or formato_dos_planes_con_cp:
         plan_movistar = plan_1
@@ -3716,14 +3734,13 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
             "código_postal": "",
         })
 
-    technical_headers = headers[26:52]
     technical_values = []
     for offset, header in enumerate(technical_headers):
         header = str(header or "").strip()
         if header in technical_by_header:
             technical_values.append(technical_by_header[header])
         else:
-            technical_values.append(row[26 + offset])
+            technical_values.append(row[business_column_count + offset])
 
     try:
         created = datetime.fromisoformat(created_time.replace("Z", "+00:00"))
@@ -3742,7 +3759,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     plan = re.sub(r"(?i)(\d+)\s*gb", r"\1 GB", plan.replace("_", " ")).strip()
 
     business = [
-        "", "", "Lead de Meta", "", "", "", hora, fecha,
+        "", "", "Lead de Meta", "", "", "", hora, fecha, "",
         nombre,
         dni,
         "",
@@ -3772,7 +3789,9 @@ async def _ordenar_leads_meta_pendientes() -> int:
         return 0
 
     base = f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_SPREADSHEET_ID}/values"
-    encoded_range = quote(f"{META_LEADFORM_SHEET_NAME}!A:AZ", safe="")
+    encoded_range = quote(
+        f"{META_LEADFORM_SHEET_NAME}!A:{_META_LEADFORM_LAST_COLUMN}", safe=""
+    )
     headers_auth = {"Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         response = await client.get(f"{base}/{encoded_range}", headers=headers_auth)
@@ -3780,14 +3799,21 @@ async def _ordenar_leads_meta_pendientes() -> int:
         rows = response.json().get("values", []) or []
         if not rows:
             return 0
-        headers = rows[0] + [""] * max(0, 52 - len(rows[0]))
+        headers = rows[0] + [""] * max(
+            0, _META_LEADFORM_TOTAL_COLUMN_COUNT - len(rows[0])
+        )
         updates = []
         for row_number, row in enumerate(rows[1:], start=2):
-            padded = row + [""] * max(0, 52 - len(row))
+            padded = row + [""] * max(
+                0, _META_LEADFORM_TOTAL_COLUMN_COUNT - len(row)
+            )
             ordered = _ordenar_fila_leadform_meta(headers, padded)
             if ordered is not None:
                 updates.append({
-                    "range": f"{META_LEADFORM_SHEET_NAME}!A{row_number}:AZ{row_number}",
+                    "range": (
+                        f"{META_LEADFORM_SHEET_NAME}!A{row_number}:"
+                        f"{_META_LEADFORM_LAST_COLUMN}{row_number}"
+                    ),
                     "values": [ordered],
                 })
         if not updates:
@@ -3800,7 +3826,9 @@ async def _ordenar_leads_meta_pendientes() -> int:
         response.raise_for_status()
         dropdown_requests = []
         for update in updates:
-            row_number = int(re.search(r"A(\d+):AZ", update["range"]).group(1))
+            row_number = int(re.search(
+                rf"A(\d+):{_META_LEADFORM_LAST_COLUMN}", update["range"]
+            ).group(1))
             dropdown_requests.append({
                 "copyPaste": {
                     "source": {
