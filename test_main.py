@@ -1474,6 +1474,7 @@ class MetaLeadFormTest(unittest.TestCase):
             "dirección_postal", "dni_(argentina)", "lead_status",
             "estos_son_los_planes_que_tenemos_con_descuento_para_vos:",
             "estos_son_los_planes_que_tenemos_con_descuento:", "código_postal",
+            "¿qué_tipo_de_línea_tenés?",
         ]
 
     def _raw_row(self):
@@ -1484,7 +1485,7 @@ class MetaLeadFormTest(unittest.TestCase):
             "Franco Pérez", "franco@example.com", "p:+5492236000000", "Buenos Aires",
             "Mar del Plata", "San Martín 1234", "12345678",
         ]
-        row[49] = "CREATED"
+        row[50] = "CREATED"
         return row
 
     def test_ordena_fila_meta_y_conserva_datos_tecnicos(self):
@@ -1497,20 +1498,22 @@ class MetaLeadFormTest(unittest.TestCase):
         self.assertEqual(ordered[10], "12345678")
         self.assertEqual(ordered[15], "franco@example.com")
         self.assertEqual(ordered[16], "Movistar")
-        self.assertEqual(ordered[17], "Consumidor final")
-        self.assertEqual(ordered[18], "Buenos Aires")
-        self.assertEqual(ordered[19], "Mar del Plata")
-        self.assertEqual(ordered[20], "San Martín 1234")
-        self.assertEqual(ordered[24], "'+5492236000000")
+        self.assertEqual(ordered[17], "")
+        self.assertEqual(ordered[18], "Consumidor final")
+        self.assertEqual(ordered[19], "Buenos Aires")
+        self.assertEqual(ordered[20], "Mar del Plata")
+        self.assertEqual(ordered[21], "San Martín 1234")
         self.assertEqual(ordered[25], "'+5492236000000")
-        self.assertEqual(ordered[26], "Plan 4 GB")
-        self.assertEqual(ordered[27], "l:1766603177946012")
-        self.assertEqual(ordered[40], "Plan 4 GB")
-        self.assertEqual(ordered[41], "")
-        self.assertEqual(ordered[48], "12345678")
-        self.assertEqual(ordered[49], "CREATED")
-        self.assertEqual(ordered[50], "")
-        self.assertEqual(ordered[52], "")
+        self.assertEqual(ordered[26], "'+5492236000000")
+        self.assertEqual(ordered[27], "Plan 4 GB")
+        self.assertEqual(ordered[28], "l:1766603177946012")
+        self.assertEqual(ordered[41], "Plan 4 GB")
+        self.assertEqual(ordered[42], "")
+        self.assertEqual(ordered[49], "12345678")
+        self.assertEqual(ordered[50], "CREATED")
+        self.assertEqual(ordered[51], "")
+        self.assertEqual(ordered[53], "")
+        self.assertEqual(ordered[54], "")
 
     def test_no_reprocesa_una_fila_ya_ordenada(self):
         ordered = main._ordenar_fila_leadform_meta(self._headers(), self._raw_row())
@@ -1524,16 +1527,17 @@ class MetaLeadFormTest(unittest.TestCase):
         row[22] = "30123456"
         ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
         self.assertEqual(ordered[10], "30123456")
-        self.assertEqual(ordered[20], "Calle Israel 1764")
-        self.assertEqual(ordered[23], "8332")
-        self.assertEqual(ordered[26], "14 GB → $20.997")
-        self.assertEqual(ordered[40], "")
+        self.assertEqual(ordered[21], "Calle Israel 1764")
+        self.assertEqual(ordered[24], "8332")
+        self.assertEqual(ordered[27], "14 GB → $20.997")
         self.assertEqual(ordered[41], "")
-        self.assertEqual(ordered[48], "30123456")
-        self.assertEqual(ordered[49], "CREATED")
-        self.assertEqual(ordered[50], "14gb_→_$20.997")
-        self.assertEqual(ordered[51], "")
-        self.assertEqual(ordered[52], "z:8332")
+        self.assertEqual(ordered[42], "")
+        self.assertEqual(ordered[49], "30123456")
+        self.assertEqual(ordered[50], "CREATED")
+        self.assertEqual(ordered[51], "14gb_→_$20.997")
+        self.assertEqual(ordered[52], "")
+        self.assertEqual(ordered[53], "z:8332")
+        self.assertEqual(ordered[54], "")
 
     def test_formulario_de_un_plan_no_desplaza_los_datos(self):
         row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT
@@ -1545,7 +1549,7 @@ class MetaLeadFormTest(unittest.TestCase):
             "San Nicolás de los Arroyos, Buenos Aires", "z:2900",
             "Calle Leon Guruciaga 1104", "29362167",
         ]
-        row[49] = "CREATED"
+        row[50] = "CREATED"
 
         ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
 
@@ -1553,18 +1557,49 @@ class MetaLeadFormTest(unittest.TestCase):
         self.assertEqual(ordered[10], "29362167")
         self.assertEqual(ordered[15], "juanflores@example.com")
         self.assertEqual(ordered[16], "personal")
-        self.assertEqual(ordered[18], "Buenos Aires")
-        self.assertEqual(ordered[19], "San Nicolás de los Arroyos, Buenos Aires")
-        self.assertEqual(ordered[20], "Calle Leon Guruciaga 1104")
-        self.assertEqual(ordered[23], "2900")
-        self.assertEqual(ordered[24], "'+5493364341110")
+        self.assertEqual(ordered[17], "")
+        self.assertEqual(ordered[19], "Buenos Aires")
+        self.assertEqual(ordered[20], "San Nicolás de los Arroyos, Buenos Aires")
+        self.assertEqual(ordered[21], "Calle Leon Guruciaga 1104")
+        self.assertEqual(ordered[24], "2900")
         self.assertEqual(ordered[25], "'+5493364341110")
-        self.assertEqual(ordered[26], "40 GB → $40.460")
-        self.assertEqual(ordered[42], "Juan Ignacio Flores")
-        self.assertEqual(ordered[48], "29362167")
-        self.assertEqual(ordered[50], "")
-        self.assertEqual(ordered[51], "40gb_→_$40.460")
-        self.assertEqual(ordered[52], "z:2900")
+        self.assertEqual(ordered[26], "'+5493364341110")
+        self.assertEqual(ordered[27], "40 GB → $40.460")
+        self.assertEqual(ordered[43], "Juan Ignacio Flores")
+        self.assertEqual(ordered[49], "29362167")
+        self.assertEqual(ordered[51], "")
+        self.assertEqual(ordered[52], "40gb_→_$40.460")
+        self.assertEqual(ordered[53], "z:2900")
+        self.assertEqual(ordered[54], "")
+
+    def test_formulario_con_tipo_de_linea(self):
+        row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT
+        row[:23] = [
+            "l:1102533235725521", "2026-10-21T18:13:38-05:00", "", "", "", "",
+            "", "", "f:1156836676699206", "DEFINITIVO ALL INFO", "true", "fb",
+            "movistar", "14gb_→_$17.997", "no_sé", "Pedro Gómez",
+            "pedro@example.com", "p:+5492236000001", "Buenos Aires", "Mar del Plata",
+            "z:7600", "San Martín 123", "30111222",
+        ]
+        row[50] = "CONTACTED"
+
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
+
+        self.assertEqual(ordered[9], "Pedro Gómez")
+        self.assertEqual(ordered[10], "30111222")
+        self.assertEqual(ordered[16], "movistar")
+        self.assertEqual(ordered[17], "No sé")
+        self.assertEqual(ordered[18], "Consumidor final")
+        self.assertEqual(ordered[19], "Buenos Aires")
+        self.assertEqual(ordered[20], "Mar del Plata")
+        self.assertEqual(ordered[21], "San Martín 123")
+        self.assertEqual(ordered[24], "7600")
+        self.assertEqual(ordered[27], "14 GB → $17.997")
+        self.assertEqual(ordered[50], "CONTACTED")
+        self.assertEqual(ordered[51], "14gb_→_$17.997")
+        self.assertEqual(ordered[52], "")
+        self.assertEqual(ordered[53], "z:7600")
+        self.assertEqual(ordered[54], "no_sé")
 
     def test_rechaza_otra_estructura_de_hoja(self):
         headers = self._headers()

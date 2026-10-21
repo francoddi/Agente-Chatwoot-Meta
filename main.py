@@ -3602,19 +3602,19 @@ _META_LEADFORM_HEADERS = [
     "ESTADO", "VENDEDORA", "COMENTARIOS", "FECHA PORTACION", "TIEMPO DE DEMORA",
     "HORA ASIGNACION", "HORA DE CARGA", "FECHA DE VENTA", "APERTURA DE CANAL",
     "NOMBRE Y APELLIDO", "DNI", "F. NAC", "ESTADO DEL DNI", "FOTO DNI",
-    "FOTO DNI DORSO", "EMAIL",
-    "EMPRESA DONANTE", "SEGMENTO", "PROVINCIA", "LOCALIDAD", "DIRECC ENTREGA", "ALTURA",
-    "PISO/ DEPTO", "CP", "NUMERO A PORTAR", "NUMERO DE CONTACTO", "PLAN",
+    "FOTO DNI DORSO", "EMAIL", "EMPRESA DONANTE", "TIPO", "SEGMENTO", "PROVINCIA",
+    "LOCALIDAD", "DIRECC ENTREGA", "ALTURA", "PISO/ DEPTO", "CP", "NUMERO A PORTAR",
+    "NUMERO DE CONTACTO", "PLAN",
 ]
-_META_LEADFORM_TECHNICAL_COLUMN_COUNT = 26
+_META_LEADFORM_TECHNICAL_COLUMN_COUNT = 27
 _META_LEADFORM_TOTAL_COLUMN_COUNT = (
     len(_META_LEADFORM_HEADERS) + _META_LEADFORM_TECHNICAL_COLUMN_COUNT
 )
-_META_LEADFORM_LAST_COLUMN = "BA"
+_META_LEADFORM_LAST_COLUMN = "BC"
 
 
 def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
-    """Convierte una fila cruda de Meta en A:AA y conserva sus datos técnicos en AB:BA."""
+    """Convierte una fila cruda de Meta en A:AB y conserva sus datos técnicos en AC:BC."""
     if (len(headers) < _META_LEADFORM_TOTAL_COLUMN_COUNT
             or len(row) < _META_LEADFORM_TOTAL_COLUMN_COUNT):
         return None
@@ -3640,19 +3640,48 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         return None
 
     # La integración nativa de Meta escribe una fila nueva de forma compacta desde A, aunque
-    # las cabeceras técnicas estén guardadas desde AA. Hay tres disposiciones conocidas:
+    # las cabeceras técnicas estén guardadas a la derecha del bloque comercial. Hay cuatro
+    # disposiciones conocidas:
     # - formulario original: dos campos de plan, dirección y DNI;
     # - Definitivo: dos campos de plan, CP, dirección y DNI;
     # - formulario de un solo plan: un campo de plan, CP, dirección y DNI.
-    # `lead_status` sí queda alineado siempre en AW. Se identifican por la posición del CP
-    # (Meta lo prefija con `z:`), no por el nombre del formulario, para que duplicarlo no rompa
-    # nuevamente el orden.
+    # - formulario con tipo de línea: plan, tipo (prepago/pospago/no sé), CP, dirección y DNI.
+    # `lead_status` sí queda alineado bajo su cabecera técnica. Los formatos se identifican por
+    # la posición del CP (Meta lo prefija con `z:`) y el contenido de TIPO, no por el nombre del
+    # formulario, para que duplicarlo no rompa nuevamente el orden.
     raw = [str(value or "").strip() for value in row[:23]]
-    formato_un_plan = raw[19].lower().startswith("z:")
-    formato_dos_planes_con_cp = raw[20].lower().startswith("z:") or bool(raw[22])
+
+    tipo_normalizado = unicodedata.normalize("NFD", raw[14].casefold())
+    tipo_normalizado = "".join(
+        char for char in tipo_normalizado if unicodedata.category(char) != "Mn"
+    ).replace("_", " ")
+    formato_plan_y_tipo = (
+        raw[20].lower().startswith("z:")
+        and any(marca in tipo_normalizado for marca in (
+            "prepago", "pospago", "no se", "tipo de linea",
+        ))
+    )
+    formato_un_plan = not formato_plan_y_tipo and raw[19].lower().startswith("z:")
+    formato_dos_planes_con_cp = (
+        not formato_plan_y_tipo
+        and (raw[20].lower().startswith("z:") or bool(raw[22]))
+    )
 
     company = raw[12]
-    if formato_un_plan:
+    tipo_linea_raw = ""
+    if formato_plan_y_tipo:
+        plan_1 = raw[13]
+        plan_2 = ""
+        tipo_linea_raw = raw[14]
+        nombre = raw[15]
+        email = raw[16]
+        phone = raw[17]
+        provincia = raw[18]
+        localidad = raw[19]
+        codigo_postal = raw[20]
+        direccion = raw[21]
+        dni = raw[22]
+    elif formato_un_plan:
         plan_1 = raw[13]
         plan_2 = ""
         nombre = raw[14]
@@ -3680,10 +3709,23 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
             direccion = raw[20]
             dni = raw[21]
 
+    phone_raw = phone
     if phone.startswith("p:"):
         phone = phone[2:]
     if codigo_postal.lower().startswith("z:"):
         codigo_postal = codigo_postal[2:].strip()
+
+    tipo_linea = tipo_linea_raw.replace("_", " ").strip()
+    tipo_clave = unicodedata.normalize("NFD", tipo_linea.casefold())
+    tipo_clave = "".join(
+        char for char in tipo_clave if unicodedata.category(char) != "Mn"
+    )
+    if "prepago" in tipo_clave:
+        tipo_linea = "Prepago"
+    elif "pospago" in tipo_clave:
+        tipo_linea = "Pospago"
+    elif "no se" in tipo_clave:
+        tipo_linea = "No sé"
 
     # Volvemos a alinear los datos crudos bajo sus cabeceras técnicas. Así se conserva la
     # trazabilidad de ambos formularios sin mezclar el plan viejo con el nuevo ni el CP con
@@ -3704,17 +3746,18 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         "¿qué_compañía_de_celular_tenés_actualmente?": company,
         "nombre_y_apellidos": nombre,
         "correo_electrónico": email,
-        "número_de_teléfono": raw[17],
+        "número_de_teléfono": phone_raw,
         "provincia": provincia,
         "ciudad": localidad,
         "dirección_postal": direccion,
         "dni_(argentina)": dni,
         "lead_status": str(row[lead_status_index] or "").strip(),
+        "¿qué_tipo_de_línea_tenés?": tipo_linea_raw,
     }
-    if formato_un_plan or formato_dos_planes_con_cp:
+    if formato_plan_y_tipo or formato_un_plan or formato_dos_planes_con_cp:
         plan_movistar = plan_1
         plan_personal = plan_2
-        if formato_un_plan:
+        if formato_plan_y_tipo or formato_un_plan:
             es_personal = "personal" in company.casefold()
             plan_movistar = "" if es_personal else plan_1
             plan_personal = plan_1 if es_personal else ""
@@ -3766,6 +3809,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         "", "", "",
         email,
         company,
+        tipo_linea,
         segmento,
         provincia,
         localidad,
