@@ -3739,6 +3739,27 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     elif "no se" in tipo_clave:
         tipo_linea = "No sé"
 
+    # Algunos clientes escriben únicamente el código postal en la pregunta de dirección.
+    # No lo mostramos como si fuera una calle: se conserva intacto en el respaldo técnico,
+    # pero la dirección comercial queda vacía y señalada para que el equipo pida calle/altura.
+    direccion_clave = re.sub(r"[^a-z0-9]", "", _texto_sin_tildes(direccion))
+    cp_clave = re.sub(r"[^a-z0-9]", "", _texto_sin_tildes(codigo_postal))
+    direccion_digitos = re.sub(r"\D", "", direccion)
+    cp_digitos = re.sub(r"\D", "", codigo_postal)
+    direccion_es_solo_cp = bool(
+        direccion_clave
+        and cp_clave
+        and (
+            direccion_clave == cp_clave
+            or (
+                direccion_clave.isdigit()
+                and direccion_digitos == cp_digitos
+            )
+        )
+    )
+    direccion_visible = "" if direccion_es_solo_cp else direccion
+    comentario_inicial = "Falta calle de entrega" if direccion_es_solo_cp else "Lead de Meta"
+
     # Volvemos a alinear los datos crudos bajo sus cabeceras técnicas. Así se conserva la
     # trazabilidad de ambos formularios sin mezclar el plan viejo con el nuevo ni el CP con
     # la dirección o el DNI.
@@ -3815,7 +3836,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     plan = re.sub(r"(?i)(\d+)\s*gb", r"\1 GB", plan.replace("_", " ")).strip()
 
     business = [
-        "", "", "Lead de Meta", "", "", "", hora, fecha, "",
+        "", "", comentario_inicial, "", "", "", hora, fecha, "",
         nombre,
         dni,
         fecha_nacimiento,
@@ -3826,7 +3847,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         segmento,
         provincia,
         localidad,
-        direccion,
+        direccion_visible,
         "",
         "",
         codigo_postal,

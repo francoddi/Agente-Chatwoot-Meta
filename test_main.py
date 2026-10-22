@@ -1625,6 +1625,24 @@ class MetaLeadFormTest(unittest.TestCase):
         self.assertEqual(ordered[17], "Prepago")
         self.assertEqual(ordered[55], "1990-05-12")
 
+    def test_no_confunde_codigo_postal_con_direccion(self):
+        row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT
+        row[:24] = [
+            "l:1139390661965827", "2026-10-22T08:10:10-05:00", "", "", "", "",
+            "", "", "f:1860504961772361", "Definitivo", "true", "fb",
+            "personal", "14gb_→_$17.997", "pospago", "Ana Pérez",
+            "ana@example.com", "p:+5492236000003", "Buenos Aires", "Banfield",
+            "z:B1828", "1828", "30111224", "1985-01-02",
+        ]
+        row[50] = "CREATED"
+
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
+
+        self.assertEqual(ordered[2], "Falta calle de entrega")
+        self.assertEqual(ordered[21], "")
+        self.assertEqual(ordered[24], "B1828")
+        self.assertEqual(ordered[48], "1828")
+
     def test_rechaza_otra_estructura_de_hoja(self):
         headers = self._headers()
         headers[0] = "OTRA HOJA"
