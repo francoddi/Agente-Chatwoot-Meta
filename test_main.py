@@ -1621,9 +1621,41 @@ class MetaLeadFormTest(unittest.TestCase):
 
         self.assertEqual(ordered[9], "María Pérez")
         self.assertEqual(ordered[10], "30111223")
-        self.assertEqual(ordered[11], "12/05/1990")
+        self.assertEqual(ordered[11], "'12/05/1990")
         self.assertEqual(ordered[17], "Prepago")
         self.assertEqual(ordered[55], "1990-05-12")
+
+    def test_formulario_convierte_fecha_de_nacimiento_yankee(self):
+        row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT
+        row[:24] = [
+            "l:1139390661965828", "2026-10-22T08:10:10-05:00", "", "", "", "",
+            "", "", "f:1860504961772361", "Definitivo", "true", "fb",
+            "movistar", "14gb_→_$17.997", "prepago", "Marcelo Jara",
+            "marcelo@example.com", "p:+5492236000004", "Buenos Aires", "Mar del Plata",
+            "z:7600", "San Martín 789", "30111225", "01/15/1967",
+        ]
+        row[50] = "CONTACTED"
+
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
+
+        self.assertEqual(ordered[11], "'15/01/1967")
+        self.assertEqual(ordered[55], "01/15/1967")
+
+    def test_formulario_conserva_fecha_de_nacimiento_latina_inequivoca(self):
+        row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT
+        row[:24] = [
+            "l:1139390661965829", "2026-10-22T08:10:10-05:00", "", "", "", "",
+            "", "", "f:1860504961772361", "Definitivo", "true", "fb",
+            "personal", "14gb_→_$17.997", "pospago", "Ana Pérez",
+            "ana@example.com", "p:+5492236000005", "Buenos Aires", "Mar del Plata",
+            "z:7600", "San Martín 987", "30111226", "15/01/1967",
+        ]
+        row[50] = "CONTACTED"
+
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
+
+        self.assertEqual(ordered[11], "'15/01/1967")
+        self.assertEqual(ordered[55], "15/01/1967")
 
     def test_no_confunde_codigo_postal_con_direccion(self):
         row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT

@@ -3718,14 +3718,30 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
 
     fecha_nacimiento_raw = raw[23]
     fecha_nacimiento = fecha_nacimiento_raw.strip()
-    fecha_iso = re.fullmatch(r"(\d{4})[-/](\d{2})[-/](\d{2})", fecha_nacimiento)
-    fecha_latina = re.fullmatch(r"(\d{2})[-/](\d{2})[-/](\d{4})", fecha_nacimiento)
-    if fecha_iso:
-        fecha_nacimiento = f"{fecha_iso.group(3)}/{fecha_iso.group(2)}/{fecha_iso.group(1)}"
-    elif fecha_latina:
-        fecha_nacimiento = (
-            f"{fecha_latina.group(1)}/{fecha_latina.group(2)}/{fecha_latina.group(3)}"
-        )
+    fecha_iso = re.fullmatch(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", fecha_nacimiento)
+    fecha_con_barras = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", fecha_nacimiento)
+    try:
+        if fecha_iso:
+            fecha_obj = datetime(
+                int(fecha_iso.group(1)),
+                int(fecha_iso.group(2)),
+                int(fecha_iso.group(3)),
+            )
+            fecha_nacimiento = fecha_obj.strftime("%d/%m/%Y")
+        elif fecha_con_barras:
+            primero = int(fecha_con_barras.group(1))
+            segundo = int(fecha_con_barras.group(2))
+            anio = int(fecha_con_barras.group(3))
+            # Meta entrega este campo como MM/DD/YYYY aunque el formulario esté en español.
+            # Si el primer número supera 12, la fecha necesariamente ya está en DD/MM/YYYY.
+            if primero > 12:
+                dia, mes = primero, segundo
+            else:
+                mes, dia = primero, segundo
+            fecha_nacimiento = datetime(anio, mes, dia).strftime("%d/%m/%Y")
+    except ValueError:
+        # Si Meta devuelve una fecha inválida, se conserva el valor crudo para no inventarla.
+        fecha_nacimiento = fecha_nacimiento_raw.strip()
 
     tipo_linea = tipo_linea_raw.replace("_", " ").strip()
     tipo_clave = unicodedata.normalize("NFD", tipo_linea.casefold())
@@ -3834,12 +3850,15 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     segmento = "Consumidor final"
     plan = plan_1 or plan_2
     plan = re.sub(r"(?i)(\d+)\s*gb", r"\1 GB", plan.replace("_", " ")).strip()
+    # Se fuerza como texto para que Google Sheets no vuelva a interpretar DD/MM como MM/DD
+    # cuando la configuración regional de la pestaña sea estadounidense.
+    fecha_nacimiento_celda = f"'{fecha_nacimiento}" if fecha_nacimiento else ""
 
     business = [
         "", "", comentario_inicial, "", "", "", hora, fecha, "",
         nombre,
         dni,
-        fecha_nacimiento,
+        fecha_nacimiento_celda,
         "", "", "",
         email,
         company,
