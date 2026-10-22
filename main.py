@@ -3606,15 +3606,15 @@ _META_LEADFORM_HEADERS = [
     "LOCALIDAD", "DIRECC ENTREGA", "ALTURA", "PISO/ DEPTO", "CP", "NUMERO A PORTAR",
     "NUMERO DE CONTACTO", "PLAN",
 ]
-_META_LEADFORM_TECHNICAL_COLUMN_COUNT = 27
+_META_LEADFORM_TECHNICAL_COLUMN_COUNT = 28
 _META_LEADFORM_TOTAL_COLUMN_COUNT = (
     len(_META_LEADFORM_HEADERS) + _META_LEADFORM_TECHNICAL_COLUMN_COUNT
 )
-_META_LEADFORM_LAST_COLUMN = "BC"
+_META_LEADFORM_LAST_COLUMN = "BD"
 
 
 def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
-    """Convierte una fila cruda de Meta en A:AB y conserva sus datos técnicos en AC:BC."""
+    """Convierte una fila cruda de Meta en A:AB y conserva sus datos técnicos en AC:BD."""
     if (len(headers) < _META_LEADFORM_TOTAL_COLUMN_COUNT
             or len(row) < _META_LEADFORM_TOTAL_COLUMN_COUNT):
         return None
@@ -3646,10 +3646,11 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     # - Definitivo: dos campos de plan, CP, dirección y DNI;
     # - formulario de un solo plan: un campo de plan, CP, dirección y DNI.
     # - formulario con tipo de línea: plan, tipo (prepago/pospago/no sé), CP, dirección y DNI.
-    # `lead_status` sí queda alineado bajo su cabecera técnica. Los formatos se identifican por
-    # la posición del CP (Meta lo prefija con `z:`) y el contenido de TIPO, no por el nombre del
-    # formulario, para que duplicarlo no rompa nuevamente el orden.
-    raw = [str(value or "").strip() for value in row[:23]]
+    # La fecha de nacimiento, cuando existe, llega como un campo adicional al final de la fila
+    # cruda (después del DNI). `lead_status` sí queda alineado bajo su cabecera técnica. Los
+    # formatos se identifican por la posición del CP (Meta lo prefija con `z:`) y el contenido
+    # de TIPO, no por el nombre del formulario, para que duplicarlo no rompa nuevamente el orden.
+    raw = [str(value or "").strip() for value in row[:24]]
 
     tipo_normalizado = unicodedata.normalize("NFD", raw[14].casefold())
     tipo_normalizado = "".join(
@@ -3715,6 +3716,17 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     if codigo_postal.lower().startswith("z:"):
         codigo_postal = codigo_postal[2:].strip()
 
+    fecha_nacimiento_raw = raw[23]
+    fecha_nacimiento = fecha_nacimiento_raw.strip()
+    fecha_iso = re.fullmatch(r"(\d{4})[-/](\d{2})[-/](\d{2})", fecha_nacimiento)
+    fecha_latina = re.fullmatch(r"(\d{2})[-/](\d{2})[-/](\d{4})", fecha_nacimiento)
+    if fecha_iso:
+        fecha_nacimiento = f"{fecha_iso.group(3)}/{fecha_iso.group(2)}/{fecha_iso.group(1)}"
+    elif fecha_latina:
+        fecha_nacimiento = (
+            f"{fecha_latina.group(1)}/{fecha_latina.group(2)}/{fecha_latina.group(3)}"
+        )
+
     tipo_linea = tipo_linea_raw.replace("_", " ").strip()
     tipo_clave = unicodedata.normalize("NFD", tipo_linea.casefold())
     tipo_clave = "".join(
@@ -3753,6 +3765,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         "dni_(argentina)": dni,
         "lead_status": str(row[lead_status_index] or "").strip(),
         "¿qué_tipo_de_línea_tenés?": tipo_linea_raw,
+        "fecha_de_nacimiento": fecha_nacimiento_raw,
     }
     if formato_plan_y_tipo or formato_un_plan or formato_dos_planes_con_cp:
         plan_movistar = plan_1
@@ -3805,7 +3818,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         "", "", "Lead de Meta", "", "", "", hora, fecha, "",
         nombre,
         dni,
-        "",
+        fecha_nacimiento,
         "", "", "",
         email,
         company,
