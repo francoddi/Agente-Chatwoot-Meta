@@ -1657,6 +1657,68 @@ class MetaLeadFormTest(unittest.TestCase):
         self.assertEqual(ordered[11], "'15/01/1967")
         self.assertEqual(ordered[55], "15/01/1967")
 
+    def test_formulario_nuevo_con_plan_condicional_movistar(self):
+        row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT
+        row[:25] = [
+            "l:1109467961974817", "2026-10-23T09:30:00-03:00", "", "", "", "",
+            "", "", "f:1157972200521479", "23-10", "true", "fb",
+            "movistar", "20gb_→_$26.009", "", "prepago", "María Pérez",
+            "maria@example.com", "p:+5492236000010", "Buenos Aires", "Mar del Plata",
+            "z:7600", "San Martín 1234", "30111230", "01/15/1990",
+        ]
+        row[50] = "CONTACTED"
+
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
+
+        self.assertEqual(ordered[9], "María Pérez")
+        self.assertEqual(ordered[10], "30111230")
+        self.assertEqual(ordered[11], "'15/01/1990")
+        self.assertEqual(ordered[15], "maria@example.com")
+        self.assertEqual(ordered[16], "movistar")
+        self.assertEqual(ordered[17], "Prepago")
+        self.assertEqual(ordered[19], "Buenos Aires")
+        self.assertEqual(ordered[20], "Mar del Plata")
+        self.assertEqual(ordered[21], "San Martín 1234")
+        self.assertEqual(ordered[24], "7600")
+        self.assertEqual(ordered[25], "'+5492236000010")
+        self.assertEqual(ordered[27], "20 GB → $26.009")
+        self.assertEqual(ordered[43], "María Pérez")
+        self.assertEqual(ordered[49], "30111230")
+        self.assertEqual(ordered[51], "20gb_→_$26.009")
+        self.assertEqual(ordered[52], "")
+        self.assertEqual(ordered[53], "z:7600")
+        self.assertEqual(ordered[54], "prepago")
+        self.assertEqual(ordered[55], "01/15/1990")
+
+    def test_formulario_nuevo_con_plan_condicional_personal(self):
+        row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT
+        row[:25] = [
+            "l:1109467961974818", "2026-10-23T09:35:00-03:00", "", "", "", "",
+            "", "", "f:1157972200521479", "23-10", "true", "ig",
+            "personal", "", "60gb_→_$39.881", "pospago", "Juan López",
+            "juan@example.com", "p:+5492236000011", "Córdoba", "Córdoba",
+            "z:5000", "Colón 567", "30111231", "1985-12-20",
+        ]
+        row[50] = "CREATED"
+
+        ordered = main._ordenar_fila_leadform_meta(self._headers(), row)
+
+        self.assertEqual(ordered[9], "Juan López")
+        self.assertEqual(ordered[10], "30111231")
+        self.assertEqual(ordered[11], "'20/12/1985")
+        self.assertEqual(ordered[16], "personal")
+        self.assertEqual(ordered[17], "Pospago")
+        self.assertEqual(ordered[21], "Colón 567")
+        self.assertEqual(ordered[24], "5000")
+        self.assertEqual(ordered[27], "60 GB → $39.881")
+        self.assertEqual(ordered[43], "Juan López")
+        self.assertEqual(ordered[49], "30111231")
+        self.assertEqual(ordered[51], "")
+        self.assertEqual(ordered[52], "60gb_→_$39.881")
+        self.assertEqual(ordered[53], "z:5000")
+        self.assertEqual(ordered[54], "pospago")
+        self.assertEqual(ordered[55], "1985-12-20")
+
     def test_no_confunde_codigo_postal_con_direccion(self):
         row = [""] * main._META_LEADFORM_TOTAL_COLUMN_COUNT
         row[:24] = [

@@ -3640,37 +3640,66 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         return None
 
     # La integración nativa de Meta escribe una fila nueva de forma compacta desde A, aunque
-    # las cabeceras técnicas estén guardadas a la derecha del bloque comercial. Hay cuatro
+    # las cabeceras técnicas estén guardadas a la derecha del bloque comercial. Hay cinco
     # disposiciones conocidas:
     # - formulario original: dos campos de plan, dirección y DNI;
     # - Definitivo: dos campos de plan, CP, dirección y DNI;
     # - formulario de un solo plan: un campo de plan, CP, dirección y DNI.
-    # - formulario con tipo de línea: plan, tipo (prepago/pospago/no sé), CP, dirección y DNI.
+    # - formulario con tipo de línea: plan, tipo (prepago/pospago/no sé), CP, dirección y DNI;
+    # - formulario con dos preguntas condicionales de plan (Movistar/Personal), tipo, CP,
+    #   dirección, DNI y fecha de nacimiento.
     # La fecha de nacimiento, cuando existe, llega como un campo adicional al final de la fila
     # cruda (después del DNI). `lead_status` sí queda alineado bajo su cabecera técnica. Los
     # formatos se identifican por la posición del CP (Meta lo prefija con `z:`) y el contenido
     # de TIPO, no por el nombre del formulario, para que duplicarlo no rompa nuevamente el orden.
-    raw = [str(value or "").strip() for value in row[:24]]
+    raw = [str(value or "").strip() for value in row[:25]]
+    raw += [""] * max(0, 25 - len(raw))
 
-    tipo_normalizado = unicodedata.normalize("NFD", raw[14].casefold())
-    tipo_normalizado = "".join(
-        char for char in tipo_normalizado if unicodedata.category(char) != "Mn"
-    ).replace("_", " ")
-    formato_plan_y_tipo = (
-        raw[20].lower().startswith("z:")
-        and any(marca in tipo_normalizado for marca in (
+    def _es_tipo_linea(valor: str) -> bool:
+        normalizado = unicodedata.normalize("NFD", valor.casefold())
+        normalizado = "".join(
+            char for char in normalizado if unicodedata.category(char) != "Mn"
+        ).replace("_", " ")
+        return any(marca in normalizado for marca in (
             "prepago", "pospago", "no se", "tipo de linea",
         ))
+
+    formato_dos_planes_y_tipo = (
+        raw[21].lower().startswith("z:")
+        and _es_tipo_linea(raw[15])
     )
-    formato_un_plan = not formato_plan_y_tipo and raw[19].lower().startswith("z:")
+    formato_plan_y_tipo = (
+        not formato_dos_planes_y_tipo
+        and raw[20].lower().startswith("z:")
+        and _es_tipo_linea(raw[14])
+    )
+    formato_un_plan = (
+        not formato_dos_planes_y_tipo
+        and not formato_plan_y_tipo
+        and raw[19].lower().startswith("z:")
+    )
     formato_dos_planes_con_cp = (
-        not formato_plan_y_tipo
+        not formato_dos_planes_y_tipo
+        and not formato_plan_y_tipo
         and (raw[20].lower().startswith("z:") or bool(raw[22]))
     )
 
     company = raw[12]
     tipo_linea_raw = ""
-    if formato_plan_y_tipo:
+    if formato_dos_planes_y_tipo:
+        plan_1 = raw[13]
+        plan_2 = raw[14]
+        tipo_linea_raw = raw[15]
+        nombre = raw[16]
+        email = raw[17]
+        phone = raw[18]
+        provincia = raw[19]
+        localidad = raw[20]
+        codigo_postal = raw[21]
+        direccion = raw[22]
+        dni = raw[23]
+        fecha_nacimiento_raw = raw[24]
+    elif formato_plan_y_tipo:
         plan_1 = raw[13]
         plan_2 = ""
         tipo_linea_raw = raw[14]
@@ -3682,6 +3711,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         codigo_postal = raw[20]
         direccion = raw[21]
         dni = raw[22]
+        fecha_nacimiento_raw = raw[23]
     elif formato_un_plan:
         plan_1 = raw[13]
         plan_2 = ""
@@ -3693,6 +3723,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         codigo_postal = raw[19]
         direccion = raw[20]
         dni = raw[21]
+        fecha_nacimiento_raw = raw[23]
     else:
         plan_1 = raw[13]
         plan_2 = raw[14]
@@ -3709,6 +3740,7 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
             codigo_postal = ""
             direccion = raw[20]
             dni = raw[21]
+        fecha_nacimiento_raw = raw[23]
 
     phone_raw = phone
     if phone.startswith("p:"):
@@ -3716,7 +3748,6 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     if codigo_postal.lower().startswith("z:"):
         codigo_postal = codigo_postal[2:].strip()
 
-    fecha_nacimiento_raw = raw[23]
     fecha_nacimiento = fecha_nacimiento_raw.strip()
     fecha_iso = re.fullmatch(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", fecha_nacimiento)
     fecha_con_barras = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", fecha_nacimiento)
@@ -3804,7 +3835,8 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
         "¿qué_tipo_de_línea_tenés?": tipo_linea_raw,
         "fecha_de_nacimiento": fecha_nacimiento_raw,
     }
-    if formato_plan_y_tipo or formato_un_plan or formato_dos_planes_con_cp:
+    if (formato_dos_planes_y_tipo or formato_plan_y_tipo
+            or formato_un_plan or formato_dos_planes_con_cp):
         plan_movistar = plan_1
         plan_personal = plan_2
         if formato_plan_y_tipo or formato_un_plan:
@@ -3848,7 +3880,10 @@ def _ordenar_fila_leadform_meta(headers: list, row: list) -> list | None:
     numero_a_portar = phone
     numero_contacto = phone
     segmento = "Consumidor final"
-    plan = plan_1 or plan_2
+    if formato_dos_planes_y_tipo and "personal" in company.casefold():
+        plan = plan_2 or plan_1
+    else:
+        plan = plan_1 or plan_2
     plan = re.sub(r"(?i)(\d+)\s*gb", r"\1 GB", plan.replace("_", " ")).strip()
     # Se fuerza como texto para que Google Sheets no vuelva a interpretar DD/MM como MM/DD
     # cuando la configuración regional de la pestaña sea estadounidense.
